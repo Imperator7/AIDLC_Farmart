@@ -1,0 +1,1458 @@
+openapi: 3.1.0
+info:
+  title: Farmart API
+  version: 0.2.0-draft
+  summary: Backend for the Farmart online grocery store.
+  description: |
+    Draft contract derived from the built frontend (`src/data/*`, `cart-context.tsx`, header search,
+    sign-up card) and the backlog in `PLAN.md`. It is the spec for the backend work.
+
+    **Implemented** (SQLite, `src/server/`): Catalog, Content and Search, plus Meta. Their summaries
+    end in ✓. Auth, Coupons, Cart, Orders and Wishlist are **not implemented yet**.
+
+    ## Conventions
+    - JSON everywhere, field names in `camelCase`. Money is a decimal number in `USD` with two decimals
+      (the frontend already uses numbers such as `4.15`).
+    - Lists return `{ data, meta }`. Single resources return the object itself.
+    - Timestamps are ISO 8601 UTC strings (`2026-10-07T09:30:00Z`).
+    - Every response carries an `X-Request-Id` header; errors repeat it as `requestId`.
+    - The server is the source of truth for prices and totals. Cart and order totals are always
+      recalculated server-side; clients never send prices.
+
+    ## Authentication
+    `POST /api/auth/register` and `POST /api/auth/login` set an httpOnly, `SameSite=Lax` session cookie
+    (`farmart_session`). Non-browser clients can send the returned token as `Authorization: Bearer <token>`.
+    Guests keep their cart in `localStorage` (as today) and send it to `POST /api/cart/merge` after signing in.
+
+    ## Errors
+    Every 4xx/5xx response is an RFC 9457 problem document (`application/problem+json`, schema `Problem`).
+    Branch on the stable `code`, never on `title` or `detail`.
+
+    | code | status | when |
+    |---|---|---|
+    | `BAD_REQUEST` | 400 | Malformed JSON or query string |
+    | `VALIDATION_FAILED` | 422 | Body or query failed validation; see `errors[]` |
+    | `UNAUTHENTICATED` | 401 | Missing or expired session |
+    | `INVALID_CREDENTIALS` | 401 | Wrong email or password |
+    | `NOT_FOUND` | 404 | Unknown route or resource |
+    | `PRODUCT_NOT_FOUND` | 404 | `productId` does not exist |
+    | `ORDER_NOT_FOUND` | 404 | Order missing or not yours |
+    | `EMAIL_TAKEN` | 409 | Register with an existing email |
+    | `OUT_OF_STOCK` | 409 | Requested quantity exceeds stock; see `errors[]` |
+    | `CART_EMPTY` | 409 | Checkout with an empty cart |
+    | `ORDER_NOT_CANCELLABLE` | 409 | Order already shipped or cancelled |
+    | `IDEMPOTENCY_CONFLICT` | 409 | Same `Idempotency-Key` reused with a different body |
+    | `COUPON_INVALID` | 422 | Unknown coupon code |
+    | `COUPON_EXPIRED` | 422 | Coupon past `expiresAt` |
+    | `COUPON_ALREADY_USED` | 422 | One-time coupon already redeemed |
+    | `COUPON_MIN_SPEND` | 422 | Cart total below `minSpend` |
+    | `RATE_LIMITED` | 429 | Too many requests; see `Retry-After` |
+    | `INTERNAL_ERROR` | 500 | Unexpected failure; report the `requestId` |
+servers:
+  - url: /
+    description: Same origin as the Next.js app
+
+# Public by default; member-only operations override this with cookieAuth/bearerAuth.
+security: []
+
+tags:
+  - name: Catalog
+    description: Products, categories and home-page collections (Epic 1, Story 2.2)
+  - name: Content
+    description: Banners and store settings (Story 2.1)
+  - name: Search
+    description: Header search autocomplete (Story 1.1)
+  - name: Auth
+    description: Member registration and sessions (Story 3.1)
+  - name: Coupons
+    description: Member discount codes (Story 3.1)
+  - name: Cart
+    description: Server-side cart for signed-in members (Story 4.1)
+  - name: Orders
+    description: Checkout and order history (Story 4.1)
+  - name: Wishlist
+    description: Saved products (header Wishlist button)
+  - name: Meta
+    description: Health and documentation endpoints
+
+paths:
+  /api/hello:
+    get:
+      tags: [Meta]
+      operationId: getHello
+      summary: Hello world ✓
+      description: A smoke-test endpoint.
+      responses:
+        "200":
+          description: Greeting
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: { type: string, example: "Hello, world!" }
+
+  /docs/openapi.json:
+    get:
+      tags: [Meta]
+      operationId: getOpenApiDocument
+      summary: This OpenAPI document as JSON ✓
+      description: Generated at build time from `openapi.yaml`.
+      responses:
+        "200":
+          description: OpenAPI 3.1 document
+          content:
+            application/json:
+              schema: { type: object }
+
+  # ---------------------------------------------------------------- Catalog
+  /api/products:
+    get:
+      tags: [Catalog]
+      operationId: listProducts
+      summary: Search, filter and sort products ✓
+      description: |
+        Backs the `/search` page, which is also the category listing. All filters combine with AND.
+        Every word of `q` must appear in the name, brand or category name (case-insensitive, `%` and `_`
+        are literal). `relevance` ranks names that start with (or have a word starting with) the first word
+        first, then by sales; without `q` it is the same as `bestselling`.
+      parameters:
+        - name: q
+          in: query
+          description: Free-text search over name, brand and category.
+          schema: { type: string, minLength: 1, maxLength: 100 }
+          example: orange
+        - $ref: "#/components/parameters/CategoryFilter"
+        - name: brand
+          in: query
+          schema: { type: string }
+          example: Sunny Farm
+        - name: minPrice
+          in: query
+          schema: { type: number, minimum: 0 }
+        - name: maxPrice
+          in: query
+          schema: { type: number, minimum: 0 }
+        - name: onSale
+          in: query
+          description: Only products with an `oldPrice`.
+          schema: { type: boolean }
+        - name: minRating
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 5 }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [relevance, price_asc, price_desc, rating_desc, discount_desc, newest, bestselling]
+            default: relevance
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of products
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/products/top-savers:
+    get:
+      tags: [Catalog]
+      operationId: listTopSavers
+      summary: Top Saver deals ✓
+      description: |
+        The countdown section on the home page. Deals run for one day; `endsAt` is the next midnight in
+        the store's time zone and drives the "Expires in" timer.
+      parameters:
+        - $ref: "#/components/parameters/CategoryFilter"
+        - $ref: "#/components/parameters/CollectionLimit"
+      responses:
+        "200":
+          description: Current deals, biggest saving first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, endsAt]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Product" }
+                  endsAt:
+                    type: string
+                    format: date-time
+                    description: When the current deal window closes.
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/products/bestsellers:
+    get:
+      tags: [Catalog]
+      operationId: listBestsellers
+      summary: Best sellers ✓
+      description: The "Best Seller" tabbed section. `category` matches the section tabs ("All" = omit).
+      parameters:
+        - $ref: "#/components/parameters/CategoryFilter"
+        - name: period
+          in: query
+          description: Ranks by units sold in the last 7 or 30 days (per-product counters until orders exist).
+          schema: { type: string, enum: [week, month], default: week }
+        - $ref: "#/components/parameters/CollectionLimit"
+      responses:
+        "200":
+          description: Products ordered by units sold
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductList" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/products/new-arrivals:
+    get:
+      tags: [Catalog]
+      operationId: listNewArrivals
+      summary: New arrivals ✓
+      description: The "New Arrivals" tabbed section, newest first.
+      parameters:
+        - $ref: "#/components/parameters/CategoryFilter"
+        - $ref: "#/components/parameters/CollectionLimit"
+      responses:
+        "200":
+          description: Newest products
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductList" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/products/{id}:
+    get:
+      tags: [Catalog]
+      operationId: getProduct
+      summary: Product detail ✓
+      description: Backs `/products/[id]`.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      responses:
+        "200":
+          description: The product with its long-form content
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductDetail" }
+        "404": { $ref: "#/components/responses/ProductNotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/products/{id}/related:
+    get:
+      tags: [Catalog]
+      operationId: listRelatedProducts
+      summary: Related products
+      description: Same category first, then others; never the product itself.
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 24, default: 6 }
+      responses:
+        "200":
+          description: Related products
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductList" }
+        "404": { $ref: "#/components/responses/ProductNotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/categories:
+    get:
+      tags: [Catalog]
+      operationId: listCategories
+      summary: All categories ✓
+      description: The header category menu and filter options.
+      responses:
+        "200":
+          description: Every category, in display order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/categories/featured:
+    get:
+      tags: [Catalog]
+      operationId: listFeaturedCategories
+      summary: Featured categories ✓
+      description: The "Browse by Category" image cards on the home page.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 24, default: 8 }
+      responses:
+        "200":
+          description: Highlighted categories
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  # ---------------------------------------------------------------- Content
+  /api/banners:
+    get:
+      tags: [Content]
+      operationId: listBanners
+      summary: Active banners ✓
+      description: Hero, side promo and brand cards. Only banners inside their `startsAt`/`endsAt` window are returned.
+      parameters:
+        - name: placement
+          in: query
+          schema: { $ref: "#/components/schemas/BannerPlacement" }
+      responses:
+        "200":
+          description: Banners ordered by `position`
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Banner" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/store/settings:
+    get:
+      tags: [Content]
+      operationId: getStoreSettings
+      summary: Delivery terms and member discount ✓
+      description: Replaces the `FREE_DELIVERY_FROM` and `DELIVERY_FEE` constants in `src/data/store.ts`.
+      responses:
+        "200":
+          description: Store settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreSettings" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  # ---------------------------------------------------------------- Search
+  /api/search/suggestions:
+    get:
+      tags: [Search]
+      operationId: getSearchSuggestions
+      summary: Autocomplete for the header search ✓
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 100 }
+          example: ban
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 10, default: 5 }
+      responses:
+        "200":
+          description: Matching products and categories
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchSuggestions" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  # ---------------------------------------------------------------- Auth
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Create a member account
+      description: |
+        The home sign-up card. Signs the new member in (sets the session cookie) and issues the
+        one-time 15% welcome coupon. "Re-type password" is checked on the client only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Account created and signed in
+          headers:
+            Set-Cookie: { $ref: "#/components/headers/SessionCookie" }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AuthSession"
+                  - type: object
+                    required: [welcomeCoupon]
+                    properties:
+                      welcomeCoupon: { $ref: "#/components/schemas/Coupon" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: Email already registered (`EMAIL_TAKEN`)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+              example:
+                type: https://farmart.dev/problems/email-taken
+                title: Email already registered
+                status: 409
+                code: EMAIL_TAKEN
+                detail: An account with youremail@mail.com already exists. Sign in instead.
+                requestId: req_01J9Z8Q4X7
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Sign in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Signed in
+          headers:
+            Set-Cookie: { $ref: "#/components/headers/SessionCookie" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: Wrong email or password (`INVALID_CREDENTIALS`). The message never says which.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Sign out
+      description: Revokes the session and clears the cookie. Succeeds even if already signed out.
+      responses:
+        "204":
+          description: Signed out
+          headers:
+            Set-Cookie:
+              description: "`farmart_session=; Max-Age=0`"
+              schema: { type: string }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Current member
+      description: The header Account button uses this to show the member's name.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200":
+          description: The signed-in member
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  # ---------------------------------------------------------------- Coupons
+  /api/coupons/validate:
+    post:
+      tags: [Coupons]
+      operationId: validateCoupon
+      summary: Check a coupon without applying it
+      description: Returns the discount the coupon would give on `subtotal` (defaults to the member's current cart total).
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, minLength: 1, maxLength: 32, example: WELCOME15 }
+                subtotal: { type: number, minimum: 0, example: 42.5 }
+      responses:
+        "200":
+          description: The coupon is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [coupon, discount]
+                properties:
+                  coupon: { $ref: "#/components/schemas/Coupon" }
+                  discount: { type: number, example: 6.38, description: Amount taken off `subtotal`. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "422": { $ref: "#/components/responses/CouponRejected" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  # ---------------------------------------------------------------- Cart
+  /api/cart:
+    get:
+      tags: [Cart]
+      operationId: getCart
+      summary: The member's cart with server-calculated totals
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/CartOk" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    delete:
+      tags: [Cart]
+      operationId: clearCart
+      summary: Clear the cart
+      description: The drawer's "Clear cart" button. Also removes an applied coupon.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/CartOk" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/cart/items:
+    post:
+      tags: [Cart]
+      operationId: addCartItem
+      summary: Add a product
+      description: The Add button. If the product is already in the cart, `qty` is added to the existing line.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId]
+              properties:
+                productId: { type: string, example: ts4 }
+                qty: { type: integer, minimum: 1, maximum: 99, default: 1 }
+      responses:
+        "200": { $ref: "#/components/responses/CartOk" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/ProductNotFound" }
+        "409": { $ref: "#/components/responses/OutOfStock" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/cart/items/{productId}:
+    parameters:
+      - name: productId
+        in: path
+        required: true
+        schema: { type: string }
+        example: ts4
+    patch:
+      tags: [Cart]
+      operationId: setCartItemQty
+      summary: Set a line's quantity
+      description: The +/- stepper. Quantity is absolute, not a delta; use DELETE to remove the line.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [qty]
+              properties:
+                qty: { type: integer, minimum: 1, maximum: 99, example: 3 }
+      responses:
+        "200": { $ref: "#/components/responses/CartOk" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/ProductNotFound" }
+        "409": { $ref: "#/components/responses/OutOfStock" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    delete:
+      tags: [Cart]
+      operationId: removeCartItem
+      summary: Remove a line
+      description: Idempotent; removing a product that is not in the cart still returns the cart.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/CartOk" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/cart/merge:
+    post:
+      tags: [Cart]
+      operationId: mergeCart
+      summary: Merge a guest cart after sign-in
+      description: |
+        Sends the `localStorage["farmart-cart"]` lines once after login or register. Quantities are added
+        to existing lines and capped at stock; unknown products are skipped and listed in `skipped`.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  maxItems: 100
+                  items: { $ref: "#/components/schemas/CartItemInput" }
+      responses:
+        "200":
+          description: Merged cart
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Cart"
+                  - type: object
+                    properties:
+                      skipped:
+                        type: array
+                        items: { type: string }
+                        description: Product ids that were not added.
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/cart/coupon:
+    put:
+      tags: [Cart]
+      operationId: applyCartCoupon
+      summary: Apply a coupon to the cart
+      description: Replaces any coupon already applied. The discount shows in `totals.couponDiscount`.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, minLength: 1, maxLength: 32, example: WELCOME15 }
+      responses:
+        "200": { $ref: "#/components/responses/CartOk" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "422": { $ref: "#/components/responses/CouponRejected" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    delete:
+      tags: [Cart]
+      operationId: removeCartCoupon
+      summary: Remove the applied coupon
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/CartOk" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  # ---------------------------------------------------------------- Orders
+  /api/orders:
+    post:
+      tags: [Orders]
+      operationId: createOrder
+      summary: Place an order from the current cart
+      description: |
+        Re-prices the cart, re-validates the coupon, reserves stock, creates the order and empties the
+        cart in one transaction. Retrying with the same `Idempotency-Key` returns the original order.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: A client-generated UUID, one per checkout attempt.
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateOrderRequest" }
+      responses:
+        "201":
+          description: Order placed
+          headers:
+            Location:
+              description: "`/api/orders/{id}`"
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "409":
+          description: "`CART_EMPTY`, `OUT_OF_STOCK` (lines in `errors[]`) or `IDEMPOTENCY_CONFLICT`"
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+              example:
+                type: https://farmart.dev/problems/out-of-stock
+                title: Not enough stock
+                status: 409
+                code: OUT_OF_STOCK
+                detail: Some items in your cart are no longer available in the quantity you asked for.
+                requestId: req_01J9Z8Q4X7
+                errors:
+                  - field: items.ts2.qty
+                    code: OUT_OF_STOCK
+                    message: Only 2 left.
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    get:
+      tags: [Orders]
+      operationId: listOrders
+      summary: Order history
+      description: Newest first.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/OrderStatus" }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/OrderSummary" }
+                  meta: { $ref: "#/components/schemas/PageMeta" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/orders/{id}:
+    get:
+      tags: [Orders]
+      operationId: getOrder
+      summary: Order detail
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: The order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/OrderNotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/orders/{id}/cancel:
+    post:
+      tags: [Orders]
+      operationId: cancelOrder
+      summary: Cancel an order
+      description: Allowed while `pending` or `confirmed`. Returns stock and, for a welcome coupon, makes it usable again.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Cancelled order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/OrderNotFound" }
+        "409":
+          description: Order can no longer be cancelled (`ORDER_NOT_CANCELLABLE`)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  # ---------------------------------------------------------------- Wishlist
+  /api/wishlist:
+    get:
+      tags: [Wishlist]
+      operationId: getWishlist
+      summary: Saved products
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "200":
+          description: Saved products, most recent first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductList" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /api/wishlist/{productId}:
+    parameters:
+      - name: productId
+        in: path
+        required: true
+        schema: { type: string }
+        example: bs1
+    put:
+      tags: [Wishlist]
+      operationId: addToWishlist
+      summary: Save a product
+      description: Idempotent.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "204": { description: Saved }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/ProductNotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    delete:
+      tags: [Wishlist]
+      operationId: removeFromWishlist
+      summary: Unsave a product
+      description: Idempotent.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        "204": { description: Removed }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: farmart_session
+      description: httpOnly, Secure, SameSite=Lax session cookie set by register/login.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The `token` from `AuthSession`, for non-browser clients.
+
+  headers:
+    SessionCookie:
+      description: "`farmart_session=<token>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`"
+      schema: { type: string }
+
+  parameters:
+    ProductId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      example: ts4
+    OrderId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      example: ord_01J9Z8Q4X7
+    CategoryFilter:
+      name: category
+      in: query
+      description: Category slug. Omit for "All".
+      schema: { type: string }
+      example: fruits-vegetables
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
+    CollectionLimit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 24, default: 12 }
+
+  responses:
+    CartOk:
+      description: The updated cart with recalculated totals
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Cart" }
+    BadRequest:
+      description: Malformed request (`BAD_REQUEST`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+          example:
+            type: https://farmart.dev/problems/bad-request
+            title: Malformed request
+            status: 400
+            code: BAD_REQUEST
+            detail: The request body is not valid JSON.
+            requestId: req_01J9Z8Q4X7
+    ValidationFailed:
+      description: Input failed validation (`VALIDATION_FAILED`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+          example:
+            type: https://farmart.dev/problems/validation-failed
+            title: Some fields are invalid
+            status: 422
+            code: VALIDATION_FAILED
+            detail: Fix the highlighted fields and try again.
+            requestId: req_01J9Z8Q4X7
+            errors:
+              - field: email
+                code: INVALID_FORMAT
+                message: Enter a valid email address.
+              - field: password
+                code: TOO_SHORT
+                message: Use at least 8 characters.
+    Unauthenticated:
+      description: Missing or expired session (`UNAUTHENTICATED`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+          example:
+            type: https://farmart.dev/problems/unauthenticated
+            title: Sign in required
+            status: 401
+            code: UNAUTHENTICATED
+            detail: Your session has expired. Sign in again.
+            requestId: req_01J9Z8Q4X7
+    ProductNotFound:
+      description: Unknown product (`PRODUCT_NOT_FOUND`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+          example:
+            type: https://farmart.dev/problems/product-not-found
+            title: Product not found
+            status: 404
+            code: PRODUCT_NOT_FOUND
+            detail: No product with id "unknown".
+            instance: /api/products/unknown
+            requestId: req_01J9Z8Q4X7
+    OrderNotFound:
+      description: Order missing or owned by someone else (`ORDER_NOT_FOUND`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    OutOfStock:
+      description: Not enough stock (`OUT_OF_STOCK`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+          example:
+            type: https://farmart.dev/problems/out-of-stock
+            title: Not enough stock
+            status: 409
+            code: OUT_OF_STOCK
+            detail: Only 2 of British Beef Mince (10% Fat) are left.
+            requestId: req_01J9Z8Q4X7
+            errors:
+              - field: qty
+                code: OUT_OF_STOCK
+                message: Only 2 left.
+    CouponRejected:
+      description: "`COUPON_INVALID`, `COUPON_EXPIRED`, `COUPON_ALREADY_USED` or `COUPON_MIN_SPEND`"
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+          example:
+            type: https://farmart.dev/problems/coupon-min-spend
+            title: Coupon not applicable
+            status: 422
+            code: COUPON_MIN_SPEND
+            detail: Spend $20.00 or more to use WELCOME15.
+            requestId: req_01J9Z8Q4X7
+    RateLimited:
+      description: Too many requests (`RATE_LIMITED`)
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    InternalError:
+      description: Unexpected server error (`INTERNAL_ERROR`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+          example:
+            type: about:blank
+            title: Internal Server Error
+            status: 500
+            code: INTERNAL_ERROR
+            detail: Something went wrong on our side. Try again in a moment.
+            requestId: req_01J9Z8Q4X7
+
+  schemas:
+    # ------------------------------------------------------------ Errors
+    Problem:
+      type: object
+      description: RFC 9457 problem details, served as `application/problem+json`.
+      required: [type, title, status, code, requestId]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: Documentation URI for this problem type; `about:blank` when none.
+          example: https://farmart.dev/problems/validation-failed
+        title:
+          type: string
+          description: Short, human-readable summary. Same for every occurrence of a `code`.
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          description: Explanation of this occurrence, safe to show to the shopper.
+        instance:
+          type: string
+          description: The request path that failed.
+        code:
+          type: string
+          description: Stable, machine-readable error code (see the table in the API description).
+          example: VALIDATION_FAILED
+        requestId:
+          type: string
+          description: Matches the `X-Request-Id` response header; quote it in support tickets.
+        errors:
+          type: array
+          description: Per-field problems, present for `VALIDATION_FAILED` and `OUT_OF_STOCK`.
+          items: { $ref: "#/components/schemas/FieldError" }
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+          description: Dotted path to the offending input.
+          example: shippingAddress.postalCode
+        code:
+          type: string
+          example: REQUIRED
+        message:
+          type: string
+          example: Enter a postcode.
+
+    # ------------------------------------------------------------ Shared
+    PageMeta:
+      type: object
+      required: [page, limit, total, totalPages]
+      properties:
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 24 }
+        total: { type: integer, example: 16 }
+        totalPages: { type: integer, example: 1 }
+
+    # ------------------------------------------------------------ Catalog
+    Product:
+      type: object
+      description: Mirrors `Product` in `src/data/home.ts`, plus computed fields.
+      required: [id, brand, name, category, categorySlug, unit, price, rating, reviews, image, discountPercent, inStock]
+      properties:
+        id: { type: string, example: ts4 }
+        brand: { type: string, example: Sunny Farm }
+        name: { type: string, example: "Blood Oranges, Sweet & Juicy" }
+        category:
+          type: string
+          description: Category display name.
+          example: Fruits & Vegetables
+        categorySlug: { type: string, example: fruits-vegetables }
+        unit: { type: string, example: 1kg }
+        price:
+          type: number
+          description: Current selling price.
+          example: 4.15
+        oldPrice:
+          type: [number, "null"]
+          description: Price before the discount; `null` when not on sale.
+          example: 4.9
+        discountPercent:
+          type: integer
+          description: "`round((1 - price / oldPrice) * 100)`, 0 when not on sale."
+          readOnly: true
+          example: 15
+        rating:
+          type: number
+          minimum: 0
+          maximum: 5
+          example: 4
+        reviews: { type: integer, minimum: 0, example: 5 }
+        image:
+          type: string
+          format: uri
+          example: https://images.unsplash.com/photo-1644751291719-574ef771ba30?w=800&q=80&fit=crop&auto=format
+        stock:
+          type: integer
+          minimum: 0
+          description: Units in stock; for a Top Saver deal, the deal's allocation. `stock − (sold ?? 0)` are left.
+          example: 60
+        sold:
+          type: integer
+          minimum: 0
+          description: Present only for today's Top Saver deals; units sold from `stock` (the "Sold x/y" bar).
+          example: 32
+        inStock:
+          type: boolean
+          readOnly: true
+          description: "`stock − (sold ?? 0) > 0`"
+          example: true
+    ProductDetail:
+      description: Mirrors `ProductDetails` in `src/data/product-details.ts`.
+      allOf:
+        - $ref: "#/components/schemas/Product"
+        - type: object
+          required: [description, origin, storage, highlights]
+          properties:
+            description:
+              type: string
+              example: Deep ruby-red flesh with a sweet, raspberry-like flavour. Great for juicing, salads and desserts.
+            origin: { type: string, example: "Sicily, Italy" }
+            storage:
+              type: string
+              example: Store at room temperature for up to 5 days, or refrigerate for up to 2 weeks.
+            highlights:
+              type: array
+              items: { type: string }
+              example: [Seasonal, Rich in vitamin C, Easy to peel]
+    ProductList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Product" }
+    ProductPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Product" }
+        meta: { $ref: "#/components/schemas/PageMeta" }
+    Category:
+      type: object
+      required: [slug, name, image, productCount]
+      properties:
+        slug: { type: string, example: fruits-vegetables }
+        name: { type: string, example: Fruits & Vegetables }
+        image:
+          type: string
+          format: uri
+          example: https://images.unsplash.com/photo-1597362925123-77861d3fbac7?w=400&q=80&fit=crop&auto=format
+        productCount: { type: integer, example: 4 }
+
+    # ------------------------------------------------------------ Content
+    BannerPlacement:
+      type: string
+      description: "`hero` main slider, `hero-side` the promo beside it, `promo` the 20% OFF strip, `brand` the brand cards."
+      enum: [hero, hero-side, promo, brand]
+    Banner:
+      type: object
+      required: [id, placement, title, image, imageAlt, href, position]
+      properties:
+        id: { type: string, example: bnr_tea_joy }
+        placement: { $ref: "#/components/schemas/BannerPlacement" }
+        eyebrow:
+          type: [string, "null"]
+          description: Small amber label above a hero title.
+          example: Summer Fresh
+        title: { type: string, example: Happy Tea 100% Organic. From $29.9 }
+        subtitle:
+          type: [string, "null"]
+          description: Supporting line (hero paragraph, promo offer details).
+        brand: { type: [string, "null"], example: Tea Joy }
+        image:
+          type: string
+          format: uri
+          example: https://images.unsplash.com/photo-1610478506025-8110cc8f1986?w=600&q=80&fit=crop&auto=format
+        imageAlt:
+          type: string
+          description: Alt text for the photo.
+          example: Box of organic tea
+        href:
+          type: string
+          description: Where the banner links, a site path.
+          example: /search?brand=Tea%20Joy
+        ctaLabel: { type: [string, "null"], example: Shop Now }
+        position: { type: integer, example: 2 }
+        startsAt: { type: [string, "null"], format: date-time }
+        endsAt: { type: [string, "null"], format: date-time }
+    StoreSettings:
+      type: object
+      required: [currency, freeDeliveryFrom, deliveryFee, memberDiscountPercent]
+      properties:
+        currency: { type: string, example: USD }
+        freeDeliveryFrom:
+          type: number
+          description: Order total from which delivery is free.
+          example: 50
+        deliveryFee: { type: number, example: 4.99 }
+        memberDiscountPercent:
+          type: integer
+          description: The welcome discount advertised on the sign-up card.
+          example: 15
+
+    # ------------------------------------------------------------ Search
+    SearchSuggestions:
+      type: object
+      required: [query, products, categories]
+      properties:
+        query: { type: string, example: ban }
+        products:
+          type: array
+          items:
+            type: object
+            required: [id, name, image, price]
+            properties:
+              id: { type: string, example: bs1 }
+              name: { type: string, example: Organic Bananas }
+              image: { type: string, format: uri }
+              price: { type: number, example: 1.95 }
+        categories:
+          type: array
+          items:
+            type: object
+            required: [slug, name]
+            properties:
+              slug: { type: string }
+              name: { type: string }
+
+    # ------------------------------------------------------------ Auth
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 254, example: youremail@mail.com }
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          writeOnly: true
+          description: Stored as a salted hash (argon2id/bcrypt); never returned.
+        name: { type: string, maxLength: 80, example: Somchai }
+        phone:
+          type: string
+          pattern: "^\\+?[0-9 ()-]{7,20}$"
+          example: "+66 81 234 5678"
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: youremail@mail.com }
+        password: { type: string, format: password, writeOnly: true }
+    User:
+      type: object
+      required: [id, email, isMember, createdAt]
+      properties:
+        id: { type: string, example: usr_01J9Z8Q4X7 }
+        email: { type: string, format: email }
+        name: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        isMember: { type: boolean, example: true }
+        createdAt: { type: string, format: date-time }
+    AuthSession:
+      type: object
+      required: [user, token, expiresAt]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        token:
+          type: string
+          description: "Same value as the cookie, for `Authorization: Bearer`."
+        expiresAt: { type: string, format: date-time }
+
+    # ------------------------------------------------------------ Coupons
+    Coupon:
+      type: object
+      required: [code, type, value, description]
+      properties:
+        code: { type: string, example: WELCOME15 }
+        type:
+          type: string
+          enum: [percent, fixed]
+          example: percent
+        value:
+          type: number
+          description: Percent (0-100) or a fixed amount, depending on `type`.
+          example: 15
+        description: { type: string, example: 15% off your first order }
+        minSpend: { type: [number, "null"], example: 20 }
+        maxDiscount: { type: [number, "null"], example: 30 }
+        singleUse: { type: boolean, example: true }
+        expiresAt: { type: [string, "null"], format: date-time }
+
+    # ------------------------------------------------------------ Cart
+    CartItemInput:
+      type: object
+      required: [productId, qty]
+      properties:
+        productId: { type: string, example: ts4 }
+        qty: { type: integer, minimum: 1, maximum: 99, example: 2 }
+    CartLine:
+      type: object
+      required: [product, qty, lineSubtotal, lineTotal]
+      properties:
+        product: { $ref: "#/components/schemas/Product" }
+        qty: { type: integer, minimum: 1, example: 2 }
+        lineSubtotal:
+          type: number
+          description: "`qty × (oldPrice ?? price)`"
+          example: 9.8
+        lineTotal:
+          type: number
+          description: "`qty × price`"
+          example: 8.3
+    CartTotals:
+      type: object
+      description: Same fields and rules as `useCart()` in `cart-context.tsx`, plus coupon fields.
+      required: [count, subtotal, savings, total, couponDiscount, delivery, grandTotal, freeDeliveryRemaining]
+      properties:
+        count:
+          type: integer
+          description: Sum of quantities (cart badge).
+          example: 3
+        subtotal:
+          type: number
+          description: Before product discounts, `Σ qty × (oldPrice ?? price)`.
+          example: 19.8
+        savings:
+          type: number
+          description: Product discounts, `subtotal − total`.
+          example: 1.5
+        total:
+          type: number
+          description: After product discounts, `Σ qty × price`.
+          example: 18.3
+        couponDiscount:
+          type: number
+          description: Coupon amount off `total` (0 without a coupon).
+          example: 2.75
+        delivery:
+          type: number
+          description: 0 when the cart is empty or `total − couponDiscount ≥ freeDeliveryFrom`, otherwise `deliveryFee`.
+          example: 4.99
+        grandTotal:
+          type: number
+          description: "`total − couponDiscount + delivery`"
+          example: 20.54
+        freeDeliveryRemaining:
+          type: number
+          description: How much more to spend for free delivery (0 once reached).
+          example: 34.45
+    Cart:
+      type: object
+      required: [items, coupon, totals, updatedAt]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CartLine" }
+        coupon:
+          oneOf:
+            - $ref: "#/components/schemas/Coupon"
+            - type: "null"
+        totals: { $ref: "#/components/schemas/CartTotals" }
+        updatedAt: { type: string, format: date-time }
+
+    # ------------------------------------------------------------ Orders
+    OrderStatus:
+      type: string
+      enum: [pending, confirmed, packing, out_for_delivery, delivered, cancelled]
+    PaymentMethod:
+      type: string
+      enum: [cash_on_delivery, card]
+    Address:
+      type: object
+      required: [recipient, phone, line1, city, postalCode, country]
+      properties:
+        recipient: { type: string, maxLength: 80, example: Somchai Jaidee }
+        phone: { type: string, example: "+66 81 234 5678" }
+        line1: { type: string, maxLength: 120, example: 99/1 Sukhumvit Rd }
+        line2: { type: [string, "null"], maxLength: 120 }
+        city: { type: string, example: Bangkok }
+        postalCode: { type: string, example: "10110" }
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2.
+          minLength: 2
+          maxLength: 2
+          example: TH
+    CreateOrderRequest:
+      type: object
+      required: [shippingAddress, paymentMethod]
+      properties:
+        shippingAddress: { $ref: "#/components/schemas/Address" }
+        paymentMethod: { $ref: "#/components/schemas/PaymentMethod" }
+        deliverySlot:
+          type: [object, "null"]
+          required: [start, end]
+          properties:
+            start: { type: string, format: date-time }
+            end: { type: string, format: date-time }
+        note: { type: [string, "null"], maxLength: 300, example: Leave at the front desk. }
+    OrderLine:
+      type: object
+      description: A snapshot of the product at the time of ordering.
+      required: [productId, name, unit, image, price, qty, lineTotal]
+      properties:
+        productId: { type: string, example: ts4 }
+        name: { type: string, example: "Blood Oranges, Sweet & Juicy" }
+        unit: { type: string, example: 1kg }
+        image: { type: string, format: uri }
+        price: { type: number, example: 4.15 }
+        oldPrice: { type: [number, "null"], example: 4.9 }
+        qty: { type: integer, example: 2 }
+        lineTotal: { type: number, example: 8.3 }
+    OrderSummary:
+      type: object
+      required: [id, number, status, itemCount, grandTotal, createdAt]
+      properties:
+        id: { type: string, example: ord_01J9Z8Q4X7 }
+        number:
+          type: string
+          description: Human-friendly order number.
+          example: FM-2026-000123
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        itemCount: { type: integer, example: 3 }
+        grandTotal: { type: number, example: 20.54 }
+        createdAt: { type: string, format: date-time }
+    Order:
+      allOf:
+        - $ref: "#/components/schemas/OrderSummary"
+        - type: object
+          required: [items, totals, shippingAddress, paymentMethod]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/OrderLine" }
+            totals: { $ref: "#/components/schemas/CartTotals" }
+            couponCode: { type: [string, "null"], example: WELCOME15 }
+            shippingAddress: { $ref: "#/components/schemas/Address" }
+            paymentMethod: { $ref: "#/components/schemas/PaymentMethod" }
+            deliverySlot:
+              type: [object, "null"]
+              properties:
+                start: { type: string, format: date-time }
+                end: { type: string, format: date-time }
+            note: { type: [string, "null"] }
+            cancelledAt: { type: [string, "null"], format: date-time }

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Database ER diagram - Farmart</title>
+<meta name="description" content="Entity-relationship diagram of the Farmart SQLite catalog (src/server/db/schema.ts)." />
+<meta name="robots" content="noindex" />
+<style>
+  :root {
+    --ink: #101828;
+    --body: #364153;
+    --muted: #6a7282;
+    --hairline: #e5e7eb;
+    --floor: #f3f4f6;
+    --primary: #ffb900;
+    --primary-ink: #bb4d00;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--floor);
+    color: var(--body);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  }
+  header { background: #fff; border-bottom: 1px solid var(--hairline); }
+  .bar { max-width: 1152px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 16px; }
+  .logo {
+    display: flex; align-items: center; justify-content: center; flex: none;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--primary); color: var(--ink); font-weight: 700; text-decoration: none;
+  }
+  h1 { margin: 0; font-size: 16px; color: var(--ink); }
+  .sub { margin: 0; font-size: 12px; color: var(--muted); }
+  nav { margin-left: auto; display: flex; gap: 16px; font-size: 12px; font-weight: 600; }
+  nav a { color: #4a5565; text-decoration: none; }
+  nav a:hover { color: var(--primary-ink); }
+  main { max-width: 1152px; margin: 0 auto; padding: 24px 16px 48px; }
+  .card { background: #fff; border-radius: 6px; padding: 24px; overflow-x: auto; }
+  .diagram { min-height: 320px; text-align: center; }
+  .diagram svg { max-width: 100%; height: auto; }
+  h2 { margin: 32px 0 12px; font-size: 18px; color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 6px; overflow: hidden; }
+  th, td { padding: 10px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--hairline); }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  code { font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; background: var(--floor); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+  .note { color: var(--muted); font-size: 12px; }
+  .error { color: #e7000b; }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  @media (max-width: 640px) { .sub, nav .wide { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <a class="logo" href="/" aria-label="Farmart home">F</a>
+    <div>
+      <h1>Database ER diagram</h1>
+      <p class="sub">The SQLite catalog in <code>.data/farmart.sqlite</code>, from <code>src/server/db/schema.ts</code></p>
+    </div>
+    <nav>
+      <a class="wide" href="/docs">API docs</a>
+      <a class="wide" href="/overview">UI overview</a>
+      <a href="/">← Back to store</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="card">
+    <!--
+      Keep in sync with src/server/db/schema.ts (src/server/__tests__/er-diagram.test.ts checks every table and column).
+      Syntax: https://mermaid.js.org/syntax/entityRelationshipDiagram.html
+    -->
+    <pre class="mermaid diagram" aria-label="Entity-relationship diagram of the catalog database">
+erDiagram
+    categories ||--o{ products : "groups"
+    products ||--o| product_details : "is described by"
+    products ||--o| deals : "is on today's deal"
+
+    categories {
+        TEXT slug PK "e.g. fruits-vegetables"
+        TEXT name UK
+        TEXT image "photo URL"
+        INTEGER position "display order"
+        INTEGER featured "0 or 1: shown on the home page"
+    }
+
+    products {
+        TEXT id PK "e.g. ts4"
+        TEXT brand
+        TEXT name
+        TEXT category_slug FK "categories.slug"
+        TEXT unit "e.g. 1kg"
+        INTEGER price_cents "> 0"
+        INTEGER old_price_cents "NULL = not on sale"
+        REAL rating "0 to 5"
+        INTEGER reviews
+        TEXT image "photo URL"
+        INTEGER stock ">= 0"
+        INTEGER sold_week "Best Seller ranking"
+        INTEGER sold_month
+        TEXT created_at "ISO time, New Arrivals order"
+    }
+
+    product_details {
+        TEXT product_id PK, FK "products.id"
+        TEXT description
+        TEXT origin
+        TEXT storage
+        TEXT highlights "JSON array of strings"
+    }
+
+    deals {
+        TEXT product_id PK, FK "products.id"
+        INTEGER sold "units sold today"
+    }
+
+    banners {
+        TEXT id PK
+        TEXT placement "hero | hero-side | promo | brand"
+        TEXT eyebrow
+        TEXT title
+        TEXT subtitle
+        TEXT brand
+        TEXT image
+        TEXT image_alt
+        TEXT href "link target"
+        TEXT cta_label
+        INTEGER position
+        TEXT starts_at "NULL = no start limit"
+        TEXT ends_at "NULL = no end limit"
+    }
+
+    settings {
+        TEXT key PK "e.g. delivery_fee_cents"
+        TEXT value
+    }
+    </pre>
+  </div>
+
+  <h2>Relationships</h2>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th>Cardinality</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>categories</code></td><td><code>products</code></td><td>one to zero-or-many</td><td>Every product belongs to exactly one category (<code>products.category_slug</code>). A category may be empty, like Coffees &amp; Teas.</td></tr>
+      <tr><td><code>products</code></td><td><code>product_details</code></td><td>one to zero-or-one</td><td>Long-form text for the product page. Deleted with the product (<code>ON DELETE CASCADE</code>).</td></tr>
+      <tr><td><code>products</code></td><td><code>deals</code></td><td>one to zero-or-one</td><td>A row means the product is in today's Top Saver. The window ends at midnight in <code>settings.time_zone</code>.</td></tr>
+    </tbody>
+  </table>
+  <p class="note">
+    <code>banners</code> and <code>settings</code> stand alone: banners link to pages by URL (<code>href</code>), not by foreign key, and settings is a key/value list.
+    Money is stored in integer cents and returned by the API as decimal dollars.
+  </p>
+</main>
+
+<!-- Mermaid is served from this site (the CSP blocks CDNs). Opened as a plain file, it falls back to the CDN. -->
+<script src="/database-er-diagram/mermaid.min.js"></script>
+<script>
+  if (!window.mermaid) {
+    var s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
+    s.onload = start;
+    document.head.appendChild(s);
+  } else start();
+
+  function start() {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "base",
+      themeVariables: {
+        fontFamily: "system-ui, -apple-system, Segoe UI, Arial, sans-serif",
+        primaryColor: "#FEF3C6",
+        primaryBorderColor: "#FFB900",
+        primaryTextColor: "#101828",
+        lineColor: "#6A7282",
+        tertiaryColor: "#FFFFFF",
+      },
+      er: { useMaxWidth: true },
+    });
+    mermaid.run({ querySelector: ".mermaid" }).catch(function (e) {
+      var el = document.querySelector(".mermaid");
+      el.insertAdjacentHTML("afterend", '<p class="error">Diagram failed to render: ' + String(e && e.message || e).replace(/</g, "&lt;") + "</p>");
+    });
+  }
+</script>
+</body>
+</html>
