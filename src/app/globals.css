@@ -2,7 +2,7 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #101828; /* DESIGN.md ink */
 }
 
 @theme inline {
@@ -12,15 +12,58 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* cart-toast entrance: rise 8px while fading in; reduced motion keeps only the fade. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes toast-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* /docs: Tailwind's preflight strips list and heading styles that Swagger UI's rendered markdown relies on. */
+.swagger-ui .renderedMarkdown ul,
+.swagger-ui .markdown ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+}
+.swagger-ui .renderedMarkdown h2,
+.swagger-ui .markdown h2 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+.swagger-ui .renderedMarkdown table,
+.swagger-ui .markdown table {
+  margin-top: 0.5rem;
+}
+
+/* DESIGN.md › Colors › Browser surfaces. In the base layer so a component can still opt out with a utility. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-gray-900);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-amber-200);
+    color: var(--color-gray-900);
+  }
+
+  /* Photos zoom on hover; with reduced motion they stay still. Fades and color changes remain. */
+  @media (prefers-reduced-motion: reduce) {
+    img {
+      scale: none !important;
+    }
+  }
 }
