@@ -16,6 +16,8 @@ const BASE = `http://localhost:${PORT}`;
  * Every route and the status it should answer in each mode. `db: true` routes read SQLite on each request, so
  * they fail (500) without a database; static pages were rendered at build time and keep working.
  * `internals: true` pages are dev tools that name files and functions on purpose (skipped by the leak check).
+ * Dev tools are hidden in production (src/proxy.ts): the healthy run is a plain production server, so they answer
+ * 404; the missing run sets FARMART_DEV_TOOLS=1, so they answer 200 there.
  */
 const routes = [
   { path: "/", name: "Home (static, ISR)", healthy: 200, missing: 200 },
@@ -23,21 +25,26 @@ const routes = [
   { path: "/products/unknown", name: "Unknown product", healthy: 404, missing: 404 },
   { path: "/search?q=oat", name: "Search", healthy: 200, missing: 500 },
   { path: "/search?category=coffees-teas", name: "Empty category", healthy: 200, missing: 500 },
-  { path: "/api/hello", name: "API hello", healthy: 200, missing: 200 },
+  { path: "/api/hello", name: "API hello (dev tool)", healthy: 404, missing: 200 },
   { path: "/api/products?q=oat", name: "API products", healthy: 200, missing: 500 },
   { path: "/api/products?limit=0", name: "API bad input", healthy: 422, missing: 422 },
+  { path: "/api/products?q=%00", name: "API control characters", healthy: 422, missing: 422 },
+  { path: "/api/products", method: "POST", name: "API unsupported method", healthy: 405, missing: 405 },
   { path: "/api/products/bs5", name: "API product detail", healthy: 200, missing: 500 },
   { path: "/api/products/nope", name: "API unknown product", healthy: 404, missing: 500 },
+  { path: `/api/products/${"x".repeat(65)}`, name: "API id too long", healthy: 422, missing: 422 },
   { path: "/api/search/suggestions?q=oat", name: "API suggestions", healthy: 200, missing: 500 },
   { path: "/api/store/settings", name: "API settings", healthy: 200, missing: 500 },
   { path: "/api/nope", name: "API unknown path", healthy: 404, missing: 404 },
-  { path: "/on-boarding", name: "On-boarding", healthy: 200, missing: 200, internals: true },
-  { path: "/test-report", name: "Test report", healthy: 200, missing: 200, internals: true },
-  { path: "/docs", name: "API docs", healthy: 200, missing: 200 },
-  { path: "/docs/openapi.json", name: "OpenAPI JSON", healthy: 200, missing: 200 },
-  { path: "/database-er-diagram", name: "ER diagram", healthy: 200, missing: 200 },
-  { path: "/design", name: "Design system", healthy: 200, missing: 200 },
-  { path: "/overview", name: "UI overview", healthy: 200, missing: 200 },
+  { path: "/on-boarding", name: "On-boarding", healthy: 404, missing: 200, internals: true },
+  { path: "/test-report", name: "Test report", healthy: 404, missing: 200, internals: true },
+  { path: "/e2e", name: "E2E report", healthy: 404, missing: 200, internals: true },
+  { path: "/e2e/shots/..%2Fresults.json", name: "E2E shots outside the folder", healthy: 404, missing: 404 },
+  { path: "/docs", name: "API docs", healthy: 404, missing: 200 },
+  { path: "/docs/openapi.json", name: "OpenAPI JSON", healthy: 404, missing: 200 },
+  { path: "/database-er-diagram", name: "ER diagram", healthy: 404, missing: 200 },
+  { path: "/design", name: "Design system", healthy: 404, missing: 200 },
+  { path: "/overview", name: "UI overview", healthy: 404, missing: 200 },
 ];
 
 /** Words that mean an error message or source code reached the browser. */
@@ -79,7 +86,7 @@ async function startServer(env) {
 async function check(mode) {
   const rows = [];
   for (const r of routes) {
-    const res = await fetch(BASE + r.path, { redirect: "manual" });
+    const res = await fetch(BASE + r.path, { method: r.method ?? "GET", redirect: "manual" });
     const body = await res.text();
     const type = res.headers.get("content-type") ?? "";
     const expected = r[mode];
@@ -87,14 +94,18 @@ async function check(mode) {
     let gets = type.includes("problem+json") ? `Problem ${JSON.parse(body).code}` : type.includes("json") ? "JSON" : res.status >= 500 ? "error page" : "page";
     if (type.includes("problem+json") && !res.headers.get("x-request-id")) gets += " (no X-Request-Id!)";
     const ok = res.status === expected && !leaks.length && !gets.includes("!");
-    rows.push({ route: r.path, what: r.name, expected, status: res.status, gets, leaks: leaks.join(", ") || "-", result: ok ? "ok" : "FAIL" });
+    rows.push({ route: `${r.method ? `${r.method} ` : ""}${r.path.length > 40 ? `${r.path.slice(0, 37)}…` : r.path}`, what: r.name, expected, status: res.status, gets, leaks: leaks.join(", ") || "-", result: ok ? "ok" : "FAIL" });
   }
   return rows;
 }
 
 const modes = [
   { id: "healthy", title: "Database seeded", env: {} },
-  { id: "missing", title: "Database missing", env: { FARMART_DB: path.join(mkdtempSync(path.join(tmpdir(), "farmart-smoke-")), "missing.sqlite") } },
+  {
+    id: "missing",
+    title: "Database missing, dev tools on",
+    env: { FARMART_DB: path.join(mkdtempSync(path.join(tmpdir(), "farmart-smoke-")), "missing.sqlite"), FARMART_DEV_TOOLS: "1" },
+  },
 ].filter((m) => !ONLY || m.id === ONLY);
 
 if (modes.some((m) => m.id === "healthy") && !existsSync(process.env.FARMART_DB || ".data/farmart.sqlite")) {

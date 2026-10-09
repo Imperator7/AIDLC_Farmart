@@ -29,6 +29,9 @@ export default async function TestReportPage() {
             </p>
           </div>
           <nav className="ml-auto flex shrink-0 gap-4 text-xs font-semibold text-gray-600">
+            <Link href="/e2e" className="hidden hover:text-amber-700 sm:inline">
+              E2E report
+            </Link>
             <Link href="/docs" className="hidden hover:text-amber-700 sm:inline">
               API docs
             </Link>

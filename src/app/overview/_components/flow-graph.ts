@@ -211,6 +211,16 @@ export function buildFlow({ productCount, designPageCount, stats }: { productCou
       summary: "Readable results of npm run test:report: unit, integration and story tests, plus backend coverage.",
       parts: ["Pass / fail summary", "Failures first, with messages", "Suites → files → features", "Coverage gaps with line numbers"],
     }),
+    screen("e2e", col(8), TOOLS_Y, {
+      shot: "/overview/e2e.jpg",
+      kind: "tool",
+      title: "E2E report",
+      route: "/e2e",
+      href: "/e2e",
+      file: "src/app/e2e/page.tsx",
+      summary: "Playwright end-to-end and image regression tests against the production build (npm run test:e2e), with a screenshot of every step.",
+      parts: ["Pass / fail and image-test summary", "Failures first", "Step screenshots per test", "Baseline vs actual vs diff"],
+    }),
     screen("on-boarding", col(7), TOOLS_Y, {
       shot: "/overview/on-boarding.jpg",
       kind: "tool",
@@ -255,6 +265,7 @@ export function buildFlow({ productCount, designPageCount, stats }: { productCou
     edge("docs", "overview", "UI overview", "navigate", "b", "b"),
     edge("erd", "docs", "API docs", "navigate", "l", "r"),
     edge("on-boarding", "test-report", "Test report", "navigate", "l", "r"),
+    edge("test-report", "e2e", "E2E report", "navigate", "t", "t"),
     edge("on-boarding", "docs", "API docs · Try it in /docs", "navigate", "b", "b"),
   ];
 

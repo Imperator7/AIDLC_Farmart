@@ -111,6 +111,7 @@ export const devTools: DevTool[] = [
   { title: "API docs", href: "/docs", reads: "openapi.yaml", about: "Swagger UI for every endpoint; ✓ marks the built ones." },
   { title: "Database ER diagram", href: "/database-er-diagram", reads: "src/server/db/mermaid.html", about: "The 6 tables and how they relate." },
   { title: "Test report", href: "/test-report", reads: "reports/ (npm run test:report)", about: "Every test and the backend coverage." },
+  { title: "E2E report", href: "/e2e", reads: "reports/e2e (npm run test:e2e)", about: "Playwright regression and image tests on the production build, with screenshots." },
   { title: "Design system", href: "/design", reads: "DESIGN.md", about: "Tokens, components and rules for any UI change." },
   { title: "UI overview", href: "/overview", reads: "flow-graph.ts + screenshots", about: "Every screen and how they link." },
   { title: "Storybook", href: "http://localhost:6006", external: true, reads: "*.stories.tsx (npm run storybook)", about: "Each component on its own; every story is a test." },

@@ -54,6 +54,7 @@ const shots = [
   { id: "docs", url: "/docs" },
   { id: "erd", url: "/database-er-diagram" },
   { id: "test-report", url: "/test-report" },
+  { id: "e2e", url: "/e2e" },
   { id: "on-boarding", url: "/on-boarding" },
   { id: "storybook", url: `${STORYBOOK}/?path=/story/components-product-card--row` },
 ];

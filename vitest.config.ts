@@ -51,6 +51,9 @@ export default defineConfig({
             enabled: true,
             headless: true,
             provider: playwright({}),
+            // Vitest's default (63315) is in Windows' dynamic port range, which Hyper-V/WinNAT reserves in blocks
+            // that change between reboots ("listen EACCES ::1:63315", and every story test silently skipped).
+            api: { port: 6106 },
             instances: [{ browser: 'chromium' }],
           },
         },
@@ -63,6 +66,10 @@ export default defineConfig({
         'src/server/**/*.ts',
         'scripts/seed/**/*.ts',
         'src/lib/search.ts',
+        'src/lib/cart.ts',
+        'src/lib/dev-tools.ts',
+        'src/proxy.ts',
+        'src/app/e2e/_components/load-e2e.ts',
         'src/app/api/**/route.ts',
         'src/app/docs/openapi.json/route.ts',
         'src/app/database-er-diagram/**/route.ts',

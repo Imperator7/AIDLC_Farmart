@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "storybook", "--", "--no-open"],
       "port": 6006
+    },
+    {
+      "name": "playwright-report",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["playwright", "show-report", "--host", "localhost", "--port", "9323"],
+      "port": 9323
     }
   ]
 }

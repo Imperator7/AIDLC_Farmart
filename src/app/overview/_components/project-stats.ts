@@ -29,6 +29,7 @@ export async function getProjectStats({ overlays, planned }: { overlays: number;
     { route: "/docs", title: "API docs", area: "Dev tool", pages: 1, href: "/docs" },
     { route: "/database-er-diagram", title: "Database ER diagram", area: "Dev tool", pages: 1, href: "/database-er-diagram" },
     { route: "/test-report", title: "Test report", area: "Dev tool", pages: 1, href: "/test-report" },
+    { route: "/e2e", title: "E2E report", area: "Dev tool", pages: 1, href: "/e2e" },
     { route: "/on-boarding", title: "On-boarding", area: "Dev tool", pages: 1, href: "/on-boarding" },
   ];
 
