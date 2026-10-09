@@ -1,0 +1,51 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/lint-on-stop.mjs\"",
+            "timeout": 120,
+            "statusMessage": "Linting the files you changed"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-dangerous-commands.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Checking for recursive deletes and force push"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/graphify.mjs\" hook-guard search",
+            "timeout": 10,
+            "statusMessage": "graphify: checking the knowledge graph"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/graphify.mjs\" hook-guard read",
+            "timeout": 10,
+            "statusMessage": "graphify: checking the knowledge graph"
+          }
+        ]
+      }
+    ]
+  }
+}

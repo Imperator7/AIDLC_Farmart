@@ -1,0 +1,11 @@
+#!/bin/sh
+# Lint, type check and every test before each commit (AGENTS.md › Agent-Specific Instructions).
+# Enabled per clone by `git config core.hooksPath .githooks` (farmart-onboard › Install).
+# Skip it only when the person who owns the commit says so: git commit --no-verify.
+set -e
+echo "pre-commit: lint, types and every test (about 1 min)…"
+npm run --silent lint
+npx tsc --noEmit
+npx vitest --run --silent
+node --test --test-reporter=dot .claude/hooks/block-dangerous-commands.test.mjs
+echo "pre-commit: all green."
