@@ -1,0 +1,7 @@
+# What graphify leaves out of the knowledge graph (same syntax as .gitignore; .gitignore applies too).
+# Third-party skills: their bundled scripts (impeccable's live UI, caveman-compress) outnumbered the app itself.
+.claude/skills/*
+!.claude/skills/farmart-*/
+.claude/hooks/
+.impeccable/
+graphify-out/

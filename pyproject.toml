@@ -1,0 +1,12 @@
+# Python dev tools for Farmart. Not a Python package: it only pins tools, like devDependencies in package.json.
+# `npm run graph:setup` (uv sync) installs them into .venv/ inside the project; uv.lock pins every version.
+[project]
+name = "farmart-dev-tools"
+version = "0.0.0"
+description = "Python dev tools for the Farmart repo (graphify knowledge graph)."
+# 3.12/3.13: tree-sitter ships prebuilt wheels there; 3.14 is too new for some grammars.
+requires-python = ">=3.10,<3.14"
+dependencies = ["graphifyy==0.9.80"]
+
+[tool.uv]
+package = false

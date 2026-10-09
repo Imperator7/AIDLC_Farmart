@@ -48,3 +48,16 @@ storybook-static
 
 # test results and coverage (npm run test:report), shown at /test-report
 /reports
+
+# Playwright (as `npm init playwright` sets it up); the E2E image baselines in e2e/__screenshots__ are committed
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+# graphify knowledge graph (rebuild with: npm run graph)
+/graphify-out
+
+# Python dev tools (graphify), created by npm run graph:setup
+/.venv
