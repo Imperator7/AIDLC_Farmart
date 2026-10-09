@@ -21,6 +21,9 @@ Walk the person through the steps in order and run the commands for them when yo
 - **Node.js 22.13 or newer**; Node 24 is what the project is developed on. `node:sqlite` doesn't exist in older versions.
   - Check: `node -v`.
 - **npm** (comes with Node) and **git**.
+- **Python 3.10–3.13** and **uv**, for graphify (the code knowledge graph Claude Code queries before reading files). The app runs without them; the graphify hooks stay silent until it's set up.
+  - Check: `python --version` and `uv --version` (or `python -m uv --version`).
+  - No uv? `pip install uv` (or `winget install astral-sh.uv`).
 - Windows works (the repo is developed on it); use Git Bash or PowerShell.
 
 ## 2. Install
@@ -28,9 +31,14 @@ Walk the person through the steps in order and run the commands for them when yo
 ```bash
 npm install
 npx playwright install chromium
+git config core.hooksPath .githooks
+npm run graph:setup
+npm run graph
 ```
 
 - The first line installs dependencies. The second downloads the headless Chromium for story tests; it's needed once per machine.
+- `git config core.hooksPath .githooks` turns on the project's pre-commit hook: every commit first runs lint, the type check and every test (about 30 s) and is refused if any fail. Git doesn't run a repo's hooks until each clone opts in, so this is once per clone.
+- `npm run graph:setup` installs graphify into `.venv/` inside the project, at the version pinned in `pyproject.toml`/`uv.lock` (the Python side's `npm install`). `npm run graph` builds `graphify-out/` (about 10 s, local, no AI cost). Nothing is installed globally.
 - **Expect:** no errors.
   - `npm warn install-scripts …` lines are normal: this npm setup skips install scripts, and the project doesn't need them.
 - **If `npm install` ends with "N high severity vulnerabilities … run `npm audit fix --force`", do not run it.**
@@ -88,6 +96,7 @@ Dev tools:
 - `/docs`: API, Swagger.
 - `/database-er-diagram`: tables and relationships.
 - `/test-report`: test results.
+- `/e2e`: a summary of the last Playwright end-to-end run, with a screenshot of every step (after `npm run build` and `npx playwright test`). Playwright's full HTML report: `npx playwright show-report`.
 - `/design`: the design system.
 - `/overview`: every page.
 

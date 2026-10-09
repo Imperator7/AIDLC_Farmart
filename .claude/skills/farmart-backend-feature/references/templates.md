@@ -89,28 +89,36 @@ Plain (query parameters only):
 ```ts
 // src/app/api/products/top-savers/route.ts
 import { topSavers } from "@/server/catalog";
-import { api, parseQuery } from "@/server/http";
+import { api, only, parseQuery } from "@/server/http";
 import { collectionQuery } from "@/server/validation";
 
 /** GET /api/products/top-savers: today's deals and when they end. */
 export const GET = api((request) => Response.json(topSavers(parseQuery(request, collectionQuery))));
+export const { POST, PUT, PATCH, DELETE } = only("GET");
 ```
 
-With a path parameter (`src/app/api/products/[id]/route.ts`; run `npx next typegen` once so `RouteContext` knows the route):
+Every route ends with that `only(...)` line, listing the methods it handles: the others answer a `405 METHOD_NOT_ALLOWED` problem with an `Allow` header (Next's own 405 has no body). Add the route to the "methods a route doesn't support" table in `routes.test.ts`.
+
+With a path parameter (`src/app/api/products/[id]/route.ts`; run `npx next typegen` once so `RouteContext` knows the route). Validate it with `parsePath` and a zod schema (`productId` caps ids at 64 characters, a 422):
 
 ```ts
 import { getProduct } from "@/server/catalog";
-import { api } from "@/server/http";
+import { api, only, parsePath } from "@/server/http";
+import { productId } from "@/server/validation";
 
 /** GET /api/products/{id}: one product with its long-form content. */
-export const GET = api(async (_request, ctx: RouteContext<"/api/products/[id]">) => Response.json(getProduct((await ctx.params).id)));
+export const GET = api(async (_request, ctx: RouteContext<"/api/products/[id]">) =>
+  Response.json(getProduct(parsePath((await ctx.params).id, productId, "id"))),
+);
+export const { POST, PUT, PATCH, DELETE } = only("GET");
 ```
 
-With a JSON body:
+With a JSON body (a route with GET and POST exports `export const { PUT, PATCH, DELETE } = only("GET", "POST");`):
 
 ```ts
 /** POST /api/cart/items: add a product to the signed-in member's cart. */
 export const POST = api(async (request) => Response.json(addCartItem(await parseBody(request, cartItemBody)), { status: 201 }));
+export const { GET, PUT, PATCH, DELETE } = only("POST");
 ```
 
 Status codes come from the spec: `201` for creates, `204` with `new Response(null, { status: 204 })` for deletes.
