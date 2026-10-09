@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { api, ApiError, notFound, parseQuery, problemResponse } from "../../http";
+import { api, ApiError, notFound, only, parseQuery, problemResponse } from "../../http";
 
 const request = (url: string, init?: RequestInit) => new Request(`http://localhost${url}`, init);
 
@@ -108,5 +108,19 @@ describe("api() wrapper", () => {
     expect(body).toMatchObject({ code: "INTERNAL_ERROR", status: 500 });
     expect(JSON.stringify(body)).not.toContain("database is locked");
     expect(log).toHaveBeenCalledWith(expect.stringContaining("POST /api/boom"), expect.any(Error));
+  });
+});
+
+describe("only", () => {
+  it("answers only the methods a route doesn't handle", () => {
+    expect(Object.keys(only("GET")).sort()).toEqual(["DELETE", "PATCH", "POST", "PUT"]);
+    expect(Object.keys(only("GET", "POST")).sort()).toEqual(["DELETE", "PATCH", "PUT"]);
+  });
+
+  it("lists HEAD in Allow only when GET is allowed", async () => {
+    const res = await only("POST").GET(request("/api/cart/items"), undefined);
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("POST, OPTIONS");
+    expect(await res.json()).toMatchObject({ code: "METHOD_NOT_ALLOWED", detail: "GET is not supported on /api/cart/items. Use POST." });
   });
 });

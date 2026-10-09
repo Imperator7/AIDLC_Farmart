@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dealEndsAt } from "../../catalog";
+import { dealEndsAt, searchTerms } from "../../catalog";
 import { discountPercent, featuredId, slugify, type Product } from "@/data/home";
 import { searchHref, suggestionOptions } from "@/lib/search";
 
@@ -49,6 +49,23 @@ describe("suggestionOptions", () => {
 
   it("returns nothing when nothing matched", () => {
     expect(suggestionOptions({ query: "zzz", products: [], categories: [] })).toEqual([]);
+  });
+});
+
+describe("searchTerms", () => {
+  it("lowercases and splits on any whitespace", () => {
+    expect(searchTerms("  Fresh\tMILK ")).toEqual(["fresh", "milk"]);
+  });
+
+  it("keeps the 5 longest words, in the order they were typed", () => {
+    // The 6th word used to be dropped whatever it was, so "oat" never counted.
+    expect(searchTerms("a b c d e f oat")).toEqual(["a", "b", "c", "d", "oat"]);
+    expect(searchTerms("x milk yy bread zzz cheese q")).toEqual(["milk", "yy", "bread", "zzz", "cheese"]);
+  });
+
+  it("keeps everything when there are 5 words or fewer", () => {
+    expect(searchTerms("a b c")).toEqual(["a", "b", "c"]);
+    expect(searchTerms("")).toEqual([]);
   });
 });
 

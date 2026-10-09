@@ -15,7 +15,7 @@ import { GET as getHello } from "@/app/api/hello/route";
 import { GET as getBestsellers } from "@/app/api/products/bestsellers/route";
 import { GET as getProduct } from "@/app/api/products/[id]/route";
 import { GET as getNewArrivals } from "@/app/api/products/new-arrivals/route";
-import { GET as getProducts } from "@/app/api/products/route";
+import { GET as getProducts, POST as postProducts } from "@/app/api/products/route";
 import { GET as getTopSavers } from "@/app/api/products/top-savers/route";
 import { GET as getSuggestions } from "@/app/api/search/suggestions/route";
 import { GET as getSettings } from "@/app/api/store/settings/route";
@@ -99,12 +99,13 @@ const invalid: Case[] = [
   ["/api/categories/featured", getFeaturedCategories, "?limit=0"],
   ["/api/banners", getBanners, "?placement=x"],
   ["/api/search/suggestions", getSuggestions, ""],
+  ["/api/products/{id}", getProduct, "", { id: "x".repeat(65) }],
 ];
 
 const missing: Case[] = [["/api/products/{id}", getProduct, "", { id: "nope" }]];
 
 const run = async (handler: Handler, apiPath: string, query: string, params: Record<string, string> = {}) => {
-  const url = apiPath.replace(/{(w+)}/g, (_, key: string) => params[key]) + query;
+  const url = apiPath.replace(/{(\w+)}/g, (_, key: string) => params[key]) + query;
   const res = await handler(new Request(`http://localhost${url}`), { params: Promise.resolve(params) } as never);
   return { res, body: await res.json() };
 };
@@ -126,6 +127,13 @@ describe("responses match openapi.yaml", () => {
     const { res, body } = await run(handler, apiPath, query, params);
     expect(res.status).toBe(404);
     expectMatchesSpec(apiPath, 404, "application/problem+json", body);
+  });
+
+  it("405 is a Problem (components/responses/MethodNotAllowed)", async () => {
+    const res = await postProducts(new Request("http://localhost/api/products", { method: "POST" }), undefined as never);
+    expect(res.status).toBe(405);
+    const validate = ajv.getSchema(`openapi#/${pointer("components", "responses", "MethodNotAllowed", "content", "application/problem+json", "schema")}`)!;
+    expect(validate(await res.json()), ajv.errorsText(validate.errors)).toBe(true);
   });
 
   it("the strict check also covers allOf schemas (a $ref'd member plus extra fields)", () => {

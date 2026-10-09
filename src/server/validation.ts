@@ -3,6 +3,17 @@ import { z } from "zod";
 /** Query-string booleans: only "true" and "false" (z.coerce.boolean would read "false" as true). */
 const bool = z.enum(["true", "false"]).transform((v) => v === "true");
 const slug = z.string().trim().max(64);
+/**
+ * Search text: control characters (a NUL byte cut the SQLite parameter short, so `q=%00` matched every product)
+ * become spaces before trimming, so text made only of them counts as empty.
+ */
+const searchText = z
+  .string()
+  .transform((s) => s.replace(/[\u0000-\u001f\u007f]/g, " ").trim())
+  .pipe(z.string().min(1).max(100));
+
+/** Path ids (`/api/products/{id}`): longer than any real id is a 422, not a lookup. */
+export const productId = z.string().max(64);
 
 export const PRODUCT_SORTS = ["relevance", "price_asc", "price_desc", "rating_desc", "discount_desc", "newest", "bestselling"] as const;
 export type ProductSort = (typeof PRODUCT_SORTS)[number];
@@ -10,7 +21,7 @@ export type ProductSort = (typeof PRODUCT_SORTS)[number];
 /** GET /api/products and the /search page. */
 export const productQuery = z
   .object({
-    q: z.string().trim().min(1).max(100).optional(),
+    q: searchText.optional(),
     category: slug.optional(),
     brand: z.string().trim().max(64).optional(),
     minPrice: z.coerce.number().min(0).optional(),
@@ -18,7 +29,7 @@ export const productQuery = z
     onSale: bool.optional(),
     minRating: z.coerce.number().int().min(1).max(5).optional(),
     sort: z.enum(PRODUCT_SORTS).default("relevance"),
-    page: z.coerce.number().int().min(1).default(1),
+    page: z.coerce.number().int().min(1).max(10000).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(24),
   })
   .refine((v) => v.minPrice === undefined || v.maxPrice === undefined || v.minPrice <= v.maxPrice, {
@@ -42,7 +53,7 @@ export const featuredCategoryQuery = z.object({ limit: z.coerce.number().int().m
 export const bannerQuery = z.object({ placement: z.enum(["hero", "hero-side", "promo", "brand"]).optional() });
 
 export const suggestionQuery = z.object({
-  q: z.string().trim().min(1).max(100),
+  q: searchText,
   limit: z.coerce.number().int().min(1).max(10).default(5),
 });
 

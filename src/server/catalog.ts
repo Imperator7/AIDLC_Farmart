@@ -109,12 +109,28 @@ const ORDER_BY: Record<Exclude<ProductQuery["sort"], "relevance">, string> = {
   bestselling: "p.sold_week DESC",
 };
 
+/**
+ * The words of `q` a search uses: at most 5, the longest ones (a short word like "a" narrows the results least),
+ * kept in the order they were typed so the first one still drives `relevance`.
+ */
+export function searchTerms(q: string, max = 5): string[] {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const keep = new Set(
+    words
+      .map((w, i) => ({ w, i }))
+      .sort((a, b) => b.w.length - a.w.length || a.i - b.i)
+      .slice(0, max)
+      .map(({ i }) => i),
+  );
+  return words.filter((_, i) => keep.has(i));
+}
+
 /** GET /api/products: every word of `q` must appear in the name, brand or category (AND). */
 export function listProducts(query: ProductQuery): ProductPage {
   const where: string[] = [];
   const params: Params = {};
 
-  const terms = query.q?.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5) ?? [];
+  const terms = query.q ? searchTerms(query.q) : [];
   terms.forEach((term, i) => {
     params[`t${i}`] = `%${likeEscape(term)}%`;
     where.push(`(lower(p.name) LIKE :t${i} ESCAPE '\\' OR lower(p.brand) LIKE :t${i} ESCAPE '\\' OR lower(c.name) LIKE :t${i} ESCAPE '\\')`);
@@ -287,7 +303,7 @@ export function dealEndsAt(now = new Date(), timeZone = settings().time_zone ?? 
 /** GET /api/search/suggestions: the best product matches plus categories whose name matches. */
 export function searchSuggestions(q: string, limit = 5): SearchSuggestions {
   const products = listProducts({ q, sort: "relevance", page: 1, limit }).data.map(({ id, name, image, price }) => ({ id, name, image, price }));
-  const terms = q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5);
+  const terms = searchTerms(q);
   const categories = getDb()
     .prepare(`SELECT slug, name FROM categories WHERE ${terms.map((_, i) => `lower(name) LIKE :t${i} ESCAPE '\\'`).join(" AND ")} ORDER BY position LIMIT 3`)
     .all(Object.fromEntries(terms.map((t, i) => [`t${i}`, `%${likeEscape(t)}%`]))) as { slug: string; name: string }[];

@@ -35,6 +35,7 @@ info:
     | `UNAUTHENTICATED` | 401 | Missing or expired session |
     | `INVALID_CREDENTIALS` | 401 | Wrong email or password |
     | `NOT_FOUND` | 404 | Unknown route or resource |
+    | `METHOD_NOT_ALLOWED` | 405 | The path exists but not with this method; see the `Allow` header |
     | `PRODUCT_NOT_FOUND` | 404 | `productId` does not exist |
     | `ORDER_NOT_FOUND` | 404 | Order missing or not yours |
     | `EMAIL_TAKEN` | 409 | Register with an existing email |
@@ -115,7 +116,8 @@ paths:
       description: |
         Backs the `/search` page, which is also the category listing. All filters combine with AND.
         Every word of `q` must appear in the name, brand or category name (case-insensitive, `%` and `_`
-        are literal). `relevance` ranks names that start with (or have a word starting with) the first word
+        are literal). Control characters count as spaces, and only the 5 longest words are used (the
+        shortest words narrow the results least). `relevance` ranks names that start with (or have a word starting with) the first word
         first, then by sales; without `q` it is the same as `bestselling`.
       parameters:
         - name: q
@@ -244,6 +246,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProductDetail" }
         "404": { $ref: "#/components/responses/ProductNotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
         "500": { $ref: "#/components/responses/InternalError" }
 
   /api/products/{id}/related:
@@ -264,6 +267,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProductList" }
         "404": { $ref: "#/components/responses/ProductNotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
         "500": { $ref: "#/components/responses/InternalError" }
 
   /api/categories:
@@ -361,6 +365,7 @@ paths:
         - name: q
           in: query
           required: true
+          description: Matched like `GET /api/products` `q`; control characters count as spaces, so a `q` of only those is a `422`.
           schema: { type: string, minLength: 1, maxLength: 100 }
           example: ban
         - name: limit
@@ -859,7 +864,8 @@ components:
       name: id
       in: path
       required: true
-      schema: { type: string }
+      description: Longer than 64 characters is a `422`, not a lookup.
+      schema: { type: string, maxLength: 64 }
       example: ts4
     OrderId:
       name: id
@@ -876,7 +882,7 @@ components:
     Page:
       name: page
       in: query
-      schema: { type: integer, minimum: 1, default: 1 }
+      schema: { type: integer, minimum: 1, maximum: 10000, default: 1 }
     Limit:
       name: limit
       in: query
@@ -923,6 +929,25 @@ components:
               - field: password
                 code: TOO_SHORT
                 message: Use at least 8 characters.
+    MethodNotAllowed:
+      description: |
+        The path exists but doesn't support this method (`METHOD_NOT_ALLOWED`). Every operation can answer
+        it, so it isn't listed on each one.
+      headers:
+        Allow:
+          description: The methods the path supports, for example `GET, HEAD`.
+          schema: { type: string }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+          example:
+            type: https://farmart.dev/problems/method-not-allowed
+            title: Method not allowed
+            status: 405
+            code: METHOD_NOT_ALLOWED
+            detail: POST is not supported on /api/products. Use GET.
+            instance: /api/products
+            requestId: req_01J9Z8Q4X7
     Unauthenticated:
       description: Missing or expired session (`UNAUTHENTICATED`)
       content:

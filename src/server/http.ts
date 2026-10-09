@@ -53,18 +53,55 @@ export const notFound = (detail: string) => new ApiError(404, "NOT_FOUND", "Not 
 export function parseQuery<T extends z.ZodType>(request: Request, schema: T): z.infer<T> {
   const result = schema.safeParse(queryObject(new URL(request.url).searchParams));
   if (result.success) return result.data;
-  throw new ApiError(
+  throw validationFailed("Fix the highlighted query parameters and try again.", result.error.issues);
+}
+
+/** Validates one path parameter (`/api/products/{id}`); failures are the same 422 as a bad query parameter. */
+export function parsePath<T extends z.ZodType>(value: unknown, schema: T, field: string): z.infer<T> {
+  const result = schema.safeParse(value);
+  if (result.success) return result.data;
+  throw validationFailed("Fix the highlighted path parameter and try again.", result.error.issues.map((issue) => ({ ...issue, path: [field] })));
+}
+
+function validationFailed(detail: string, issues: z.core.$ZodIssue[]) {
+  return new ApiError(
     422,
     "VALIDATION_FAILED",
     "Some fields are invalid",
-    "Fix the highlighted query parameters and try again.",
-    result.error.issues.map((issue) => {
+    detail,
+    issues.map((issue) => {
       const field = issue.path.join(".") || "query";
       return issue.code === "invalid_type" && issue.message.endsWith("received undefined")
         ? { field, code: "REQUIRED", message: `${field} is required.` }
         : { field, code: issue.code.toUpperCase(), message: issue.message };
     }),
   );
+}
+
+const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+type Method = (typeof METHODS)[number];
+
+/**
+ * Handlers for the methods a route doesn't support: a 405 problem with an `Allow` header, instead of Next's empty
+ * 405. Every route exports them next to its own handlers, e.g. `export const { POST, PUT, PATCH, DELETE } = only("GET");`
+ * or, for a route with GET and POST, `export const { PUT, PATCH, DELETE } = only("GET", "POST");`.
+ */
+export function only<A extends Method>(...allowed: A[]): Record<Exclude<Method, A>, ReturnType<typeof api>> {
+  const allow = [...allowed, ...(allowed.includes("GET" as A) ? ["HEAD"] : []), "OPTIONS"].join(", ");
+  const handler = api((request) => {
+    const path = new URL(request.url).pathname;
+    throw new MethodNotAllowedError(`${request.method} is not supported on ${path}. Use ${allowed.join(" or ")}.`, allow);
+  });
+  return Object.fromEntries(METHODS.filter((m) => !allowed.includes(m as A)).map((m) => [m, handler])) as Record<Exclude<Method, A>, ReturnType<typeof api>>;
+}
+
+class MethodNotAllowedError extends ApiError {
+  constructor(
+    detail: string,
+    readonly allow: string,
+  ) {
+    super(405, "METHOD_NOT_ALLOWED", "Method not allowed", detail);
+  }
 }
 
 type Handler<C> = (request: Request, context: C) => Response | Promise<Response>;
@@ -78,8 +115,10 @@ export function api<C>(handler: Handler<C>): (request: Request, context: C) => P
     try {
       response = await handler(request, context);
     } catch (e) {
-      if (e instanceof ApiError) response = problemResponse(e, requestId, instance);
-      else {
+      if (e instanceof ApiError) {
+        response = problemResponse(e, requestId, instance);
+        if (e instanceof MethodNotAllowedError) response.headers.set("Allow", e.allow);
+      } else {
         console.error(`[${requestId}] ${request.method} ${instance}`, e);
         response = problemResponse(
           new ApiError(500, "INTERNAL_ERROR", "Internal Server Error", "Something went wrong on our side. Try again in a moment."),

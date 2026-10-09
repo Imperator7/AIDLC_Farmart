@@ -6,6 +6,7 @@ import {
   collectionQuery,
   featuredCategoryQuery,
   parseLenient,
+  productId,
   productQuery,
   queryObject,
   suggestionQuery,
@@ -58,6 +59,10 @@ describe("productQuery", () => {
     ["sort", "cheapest"],
     ["page", "0"],
     ["page", "1.5"],
+    ["page", "10001"],
+    ["page", "900719925474099"],
+    ["q", "\u0000"],
+    ["q", "\u0000\t\u001f"],
     ["limit", "0"],
     ["limit", "101"],
     ["category", "x".repeat(65)],
@@ -65,6 +70,12 @@ describe("productQuery", () => {
     const result = productQuery.safeParse({ [key]: value });
     expect(result.success).toBe(false);
     expect(result.error?.issues[0].path[0]).toBe(key);
+  });
+
+  it("turns control characters in q into spaces", () => {
+    // A NUL byte once cut the SQL parameter short, so `q=%00` matched every product.
+    expect(productQuery.parse({ q: "oat\u0000meal\u007f" }).q).toBe("oat meal");
+    expect(productQuery.parse({ page: "10000" }).page).toBe(10000);
   });
 
   it("rejects a reversed price range on maxPrice", () => {
@@ -101,6 +112,12 @@ describe("collection schemas", () => {
     expect(suggestionQuery.parse({ q: "mil" })).toEqual({ q: "mil", limit: 5 });
     expect(suggestionQuery.safeParse({}).success).toBe(false);
     expect(suggestionQuery.safeParse({ q: "mil", limit: "11" }).success).toBe(false);
+    expect(suggestionQuery.safeParse({ q: "\u0000" }).success).toBe(false);
+  });
+
+  it("product ids are at most 64 characters", () => {
+    expect(productId.safeParse("x".repeat(64)).success).toBe(true);
+    expect(productId.safeParse("x".repeat(65)).success).toBe(false);
   });
 });
 

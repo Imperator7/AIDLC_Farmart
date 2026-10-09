@@ -1,22 +1,34 @@
 /** Every route handler end to end: Request → validation → repository → SQLite → Response. */
 import { describe, expect, it } from "vitest";
 import * as missing from "@/app/api/[...path]/route";
-import { GET as getBanners } from "@/app/api/banners/route";
-import { GET as getFeaturedCategories } from "@/app/api/categories/featured/route";
-import { GET as getCategories } from "@/app/api/categories/route";
-import { GET as getHello } from "@/app/api/hello/route";
-import { GET as getBestsellers } from "@/app/api/products/bestsellers/route";
-import { GET as getProduct } from "@/app/api/products/[id]/route";
-import { GET as getNewArrivals } from "@/app/api/products/new-arrivals/route";
-import { GET as getProducts } from "@/app/api/products/route";
-import { GET as getTopSavers } from "@/app/api/products/top-savers/route";
-import { GET as getSuggestions } from "@/app/api/search/suggestions/route";
-import { GET as getSettings } from "@/app/api/store/settings/route";
+import * as banners from "@/app/api/banners/route";
+import * as featuredCategories from "@/app/api/categories/featured/route";
+import * as categories from "@/app/api/categories/route";
+import * as hello from "@/app/api/hello/route";
+import * as bestsellerRoute from "@/app/api/products/bestsellers/route";
+import * as product from "@/app/api/products/[id]/route";
+import * as newArrivals from "@/app/api/products/new-arrivals/route";
+import * as products from "@/app/api/products/route";
+import * as topSavers from "@/app/api/products/top-savers/route";
+import * as suggestions from "@/app/api/search/suggestions/route";
+import * as settings from "@/app/api/store/settings/route";
 import { GET as getErd } from "@/app/database-er-diagram/route";
 import { GET as getMermaid } from "@/app/database-er-diagram/mermaid.min.js/route";
 import { GET as getOpenApi } from "@/app/docs/openapi.json/route";
 
 type Handler = (request: Request, context: never) => Response | Promise<Response>;
+
+const getBanners = banners.GET;
+const getFeaturedCategories = featuredCategories.GET;
+const getCategories = categories.GET;
+const getHello = hello.GET;
+const getBestsellers = bestsellerRoute.GET;
+const getProduct = product.GET;
+const getNewArrivals = newArrivals.GET;
+const getProducts = products.GET;
+const getTopSavers = topSavers.GET;
+const getSuggestions = suggestions.GET;
+const getSettings = settings.GET;
 
 async function call(handler: Handler, url: string, init?: RequestInit) {
   const res = await handler(new Request(`http://localhost${url}`, init), undefined as never);
@@ -62,6 +74,17 @@ describe("GET /api/products", () => {
   it("returns 422 for a reversed price range", async () => {
     await expectInvalid(getProducts, "/api/products?minPrice=9&maxPrice=1", ["maxPrice"]);
   });
+
+  it("rejects a q of only control characters and a page past 10000", async () => {
+    // q=%00 used to match every product: the NUL byte cut the SQL parameter short.
+    await expectInvalid(getProducts, "/api/products?q=%00&page=10001", ["q", "page"]);
+  });
+
+  it("searches with the 5 longest words when there are more", async () => {
+    // "oat" is the 7th word; it used to be dropped, which matched products without it.
+    const { body } = await call(getProducts, "/api/products?q=a%20b%20c%20d%20e%20f%20oat");
+    expect(body.data.map((p: { id: string }) => p.id)).toEqual(["bs5"]);
+  });
 });
 
 /** `call` passes no route context; this variant passes params the way Next does. */
@@ -90,6 +113,13 @@ describe("GET /api/products/{id}", () => {
     expect(res.status).toBe(404);
     expect(res.headers.get("Content-Type")).toBe("application/problem+json");
     expect(await res.json()).toMatchObject({ code: "PRODUCT_NOT_FOUND", status: 404, instance: "/api/products/nope" });
+  });
+
+  it("answers an id longer than 64 characters with 422, without a lookup", async () => {
+    const id = "x".repeat(65);
+    const res = await getProduct(new Request(`http://localhost/api/products/${id}`), withParams({ id }));
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ code: "VALIDATION_FAILED", errors: [{ field: "id", code: "TOO_BIG" }] });
   });
 });
 
@@ -188,6 +218,33 @@ describe("unknown /api paths", () => {
     expect(type).toBe("application/problem+json");
     expect(body).toMatchObject({ code: "NOT_FOUND", detail: `No endpoint ${method} /api/cart. See /docs for the API.` });
   });
+});
+
+describe("methods a route doesn't support", () => {
+  const routes = {
+    "/api/banners": banners,
+    "/api/categories": categories,
+    "/api/categories/featured": featuredCategories,
+    "/api/hello": hello,
+    "/api/products": products,
+    "/api/products/bs1": product,
+    "/api/products/bestsellers": bestsellerRoute,
+    "/api/products/new-arrivals": newArrivals,
+    "/api/products/top-savers": topSavers,
+    "/api/search/suggestions": suggestions,
+    "/api/store/settings": settings,
+  };
+
+  it.each(Object.entries(routes).flatMap(([path, route]) => (["POST", "PUT", "PATCH", "DELETE"] as const).map((m) => [m, path, route] as const)))(
+    "%s %s answers 405 METHOD_NOT_ALLOWED with Allow",
+    async (method, path, route) => {
+      const { res, status, type, body, requestId } = await call(route[method] as Handler, path, { method });
+      expect(status).toBe(405);
+      expect(type).toBe("application/problem+json");
+      expect(res.headers.get("Allow")).toBe("GET, HEAD, OPTIONS");
+      expect(body).toMatchObject({ code: "METHOD_NOT_ALLOWED", status: 405, instance: path, requestId, detail: `${method} is not supported on ${path}. Use GET.` });
+    },
+  );
 });
 
 describe("other routes", () => {
