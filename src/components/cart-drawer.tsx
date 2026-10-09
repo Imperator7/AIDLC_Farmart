@@ -60,8 +60,10 @@ export default function CartDrawer() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="cart-drawer-title"
-        className={`absolute top-0 right-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl transition-transform duration-300 motion-reduce:transition-none ${
-          isOpen ? "translate-x-0" : "translate-x-full"
+        // The shadow only while open: off-screen (translate-x-full) it still spread onto the page's right edge,
+        // a grey band on every page that the E2E image tests caught.
+        className={`absolute top-0 right-0 flex h-full w-full max-w-md flex-col bg-white transition-transform duration-300 motion-reduce:transition-none ${
+          isOpen ? "translate-x-0 shadow-2xl" : "translate-x-full"
         }`}
       >
         <header className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
