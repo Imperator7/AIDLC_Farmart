@@ -3,10 +3,10 @@
 import { createContext, useContext, useEffect, useMemo, useReducer } from "react";
 import type { Product } from "@/data/home";
 import { DELIVERY_FEE, FREE_DELIVERY_FROM } from "@/data/store";
+import { type CartItem, clampQty, sanitizeCart } from "@/lib/cart";
 
 export { DELIVERY_FEE, FREE_DELIVERY_FROM };
-
-export type CartItem = { product: Product; qty: number };
+export type { CartItem };
 
 /** The product the cart-toast confirms; `key` changes on every add so repeat adds re-show it. */
 export type Added = { product: Product; key: number };
@@ -31,14 +31,14 @@ function reducer(state: State, action: Action): State {
     case "add": {
       const existing = state.items.find((i) => i.product.id === action.product.id);
       const items = existing
-        ? state.items.map((i) => (i === existing ? { ...i, qty: i.qty + action.qty } : i))
-        : [...state.items, { product: action.product, qty: action.qty }];
+        ? state.items.map((i) => (i === existing ? { ...i, qty: clampQty(i.qty + action.qty) } : i))
+        : [...state.items, { product: action.product, qty: clampQty(action.qty) }];
       return { ...state, items, added: { product: action.product, key: (state.added?.key ?? 0) + 1 } };
     }
     case "setQty":
       return {
         ...state,
-        items: state.items.map((i) => (i.product.id === action.id ? { ...i, qty: Math.max(1, action.qty) } : i)),
+        items: state.items.map((i) => (i.product.id === action.id ? { ...i, qty: clampQty(action.qty) } : i)),
       };
     case "remove":
       return { ...state, items: state.items.filter((i) => i.product.id !== action.id) };
@@ -55,8 +55,7 @@ function reducer(state: State, action: Action): State {
 function readStorage(): CartItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const items = raw ? (JSON.parse(raw) as CartItem[]) : [];
-    return Array.isArray(items) ? items.filter((i) => i?.product?.id && i.qty > 0) : [];
+    return raw ? sanitizeCart(JSON.parse(raw)) : [];
   } catch {
     return [];
   }
