@@ -73,7 +73,7 @@ A row fails on a wrong status, or if error text or source code (`DatabaseNotRead
    - `.claude/settings.local.json` (personal settings; not in `.gitignore`, so check by eye);
    - scratch files.
 2. **Check for edits you didn't make.** Files changed outside the task (especially `src/data/*.ts`) belong to someone else: mention them and leave them unstaged unless the person says otherwise.
-3. **Branch:** the repo works on `master` and has no remote yet. Commit there unless the person asks for a branch. Once a remote exists, branch first (`feat/<short-name>`) and open a PR instead of pushing to `master`.
+3. **Branch:** `main` is the main branch, on GitHub at `origin` (https://github.com/Imperator7/AIDLC_Farmart). Never commit or push to `main` directly: branch from it first (`feat/<short-name>`, `fix/…`, `docs/…`), push the branch and open a PR into `main`.
 4. **Message:** [Conventional Commits](https://www.conventionalcommits.org): `type(scope): summary` in the imperative, under 72 characters.
    - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `build`, `perf`.
    - Scopes: `api`, `db`, `seed`, `search`, `cart`, `pdp`, `home`, `design`, `overview`, `onboarding`, `test-report`, `skills`.
@@ -89,7 +89,9 @@ A row fails on a wrong status, or if error text or source code (`DatabaseNotRead
    Each commit should still pass the gate on its own when that's practical.
 6. **Commit only when asked.** Show the planned commits (files + messages) and wait for a yes; never push without being asked.
 
-## 5. Pull request (when a remote exists)
+## 5. Pull request
+
+Push the branch (`git push -u origin <branch>`), then open the PR into `main`: `gh pr create --base main` when the GitHub CLI is installed, otherwise https://github.com/Imperator7/AIDLC_Farmart/compare/main...<branch>.
 
 Title = the main commit's summary. Body:
 
