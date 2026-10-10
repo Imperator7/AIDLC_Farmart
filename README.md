@@ -1,36 +1,112 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Farmart
 
-## Getting Started
+An online grocery store: browse fresh produce and pantry staples, search and filter the catalog, and fill a cart. Built
+with **Next.js 16** (App Router), **React 19**, **TypeScript** and **Tailwind CSS 4**, with the backend in the same app:
+route handlers under `/api` and data in **SQLite** through Node's built-in `node:sqlite`. There is no database server and
+no `.env` to set up.
 
-First, run the development server:
+## Quick start
+
+You need **Node.js 22.13 or newer** (the project is developed on Node 24), npm and git.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/Imperator7/AIDLC_Farmart.git
+cd AIDLC_Farmart
+npm install
+npm run db:seed     # creates .data/farmart.sqlite from src/data
+npm run db:check    # confirms the database matches that data
+npm run dev         # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Turn on the pre-commit hook once per clone (it runs lint, types and every test before each commit):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+git config core.hooksPath .githooks
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+New to the project? Open http://localhost:3000/on-boarding once the dev server runs. It shows the live setup status, the
+data pipeline and how every feature gets its data, from the click to the database.
 
-## Learn More
+## What's in the app
 
-To learn more about Next.js, take a look at the following resources:
+| Page | What it shows |
+|---|---|
+| `/` | Home: hero banner, categories, Top Saver deals with a countdown, Best Seller and New Arrivals |
+| `/search` | Search results and category listings, with sorting and pages |
+| `/products/[id]` | Product detail |
+| `/api/*` | The JSON API: products, search suggestions, categories, banners, store settings |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Developer pages, available in `npm run dev` and hidden (404) in production unless the server runs with
+`FARMART_DEV_TOOLS=1`:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Page | What it shows |
+|---|---|
+| `/on-boarding` | Newcomer dashboard: setup status, data pipeline, feature flows |
+| `/design` | The living design system, generated from `DESIGN.md` |
+| `/overview` | The UI flow map |
+| `/docs` | Swagger UI for the API contract (`openapi.yaml`) |
+| `/database-er-diagram` | The database ER diagram |
+| `/test-report` | Unit, integration and story test results with coverage |
+| `/e2e` | The Playwright end-to-end report, with a screenshot of every step |
 
-## Deploy on Vercel
+## How the data flows
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+src/data/*.ts  →  scripts/seed/seed.ts  →  .data/farmart.sqlite  →  src/server/  →  pages and /api
+ (seed data)        (npm run db:seed)        (local, git-ignored)     (queries)
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`src/data` is the source of the starting data; the SQLite file is only a local copy. Change data in `src/data` and run
+`npm run db:seed` again, never edit the database by hand. `npm run db:reset` rebuilds the file from scratch (stop the dev
+server first).
+
+## Project layout
+
+```
+src/app/          routes: pages, /api route handlers and the developer pages
+src/components/   UI; shared primitives in ui.tsx, cart state in cart-context.tsx
+src/server/       backend: db/ (schema, connection), catalog.ts (queries), validation.ts (zod), http.ts (api wrapper, errors)
+src/lib/          helpers shared by server and client (cart sanitizing, DESIGN.md parser, dev-tool paths)
+src/data/         seed data and shared types
+scripts/seed/     the seed CLI (db:seed, db:check, db:reset)
+e2e/              Playwright tests and the approved image baselines
+DESIGN.md         design system spec, the single source of truth for UI
+openapi.yaml      API contract (OpenAPI 3.1)
+PLAN.md           epics, backlog and status
+```
+
+## Scripts
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Development server at http://localhost:3000 |
+| `npm run build` / `npm start` | Production build (needs a seeded database) and server |
+| `npm run lint` / `npx tsc --noEmit` | ESLint and type check |
+| `npm run test:backend` | Backend unit and integration tests with coverage (kept at 100% of lines) |
+| `npx vitest --run --project=storybook` | Renders every component story as a test |
+| `npm run test:report` | Every Vitest test with coverage; read it at `/test-report` |
+| `npm run test:e2e` | Playwright end-to-end tests against the production build (run `npm run build` first) |
+| `npm run test:e2e:report` | Playwright's HTML report at http://localhost:9323 |
+| `npm run smoke` | Production smoke test of every route, with the database seeded and missing |
+| `npm run storybook` | Component stories at http://localhost:6006 |
+| `npm run db:seed` / `db:check` / `db:reset` | Seed, compare or rebuild the database |
+
+## Testing
+
+- **Unit** (`src/server/__tests__/unit`): validation, HTTP helpers, search, dates. No database.
+- **Integration** (`src/server/__tests__/integration`): every route handler against a freshly seeded in-memory SQLite,
+  plus a contract test that checks real responses against `openapi.yaml`.
+- **Stories**: every component story renders without errors.
+- **End-to-end** (`e2e/`): user journeys in a real browser on the production build, at desktop width and 375px, with
+  image comparisons against approved screenshots. Each run seeds its own database (`.data/e2e.sqlite`), so the results
+  don't depend on your development data.
+
+## Contributing
+
+- `main` is the main branch. Work on a branch (`feat/…`, `fix/…`, `docs/…`) and open a pull request into `main`.
+- Commits follow [Conventional Commits](https://www.conventionalcommits.org), for example
+  `feat(api): add product detail endpoint`, one concern per commit.
+- Before opening a PR, run lint, `tsc`, the tests and the build. The pre-commit hook refuses a commit with red lint,
+  types or tests.
+- UI changes follow `DESIGN.md`; API changes start in `openapi.yaml`.
+- Contributor and AI-agent guidelines, in full: [`AGENTS.md`](AGENTS.md).

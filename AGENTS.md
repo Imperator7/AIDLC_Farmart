@@ -84,7 +84,7 @@ Components: each has a `<name>.stories.tsx` file next to it. Backend tests live 
 
 ## Commit & Pull Request Guidelines
 
-Use Conventional Commits (`feat(api): add product detail endpoint`), one concern per commit, and commit only when asked. `farmart-verify` › Commit and Pull request hold the scopes, what never to commit, how to split a large change, and the PR template.
+Use Conventional Commits (`feat(api): add product detail endpoint`), one concern per commit, and commit only when asked. `main` is the main branch (remote `origin`, https://github.com/Imperator7/AIDLC_Farmart): work on a branch and open a PR into `main`; never push to `main` directly. `farmart-verify` › Commit and Pull request hold the scopes, what never to commit, how to split a large change, and the PR template.
 
 ## Skills and Hooks
 
