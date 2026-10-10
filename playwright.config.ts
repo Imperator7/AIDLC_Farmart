@@ -4,13 +4,19 @@ import { defineConfig, devices } from "@playwright/test";
  * End-to-end regression tests (e2e/*.spec.ts) against the production build. The standard Playwright workflow
  * (as `npm init playwright` sets it up):
  *   npm run build              the app under test
- *   npx playwright test        or npm run test:e2e; starts its own `next start` on port 3100
+ *   npx playwright test        or npm run test:e2e; seeds its own database, then starts `next start` on port 3100
  *   npx playwright show-report or npm run test:e2e:report; Playwright's HTML report (playwright-report/)
  * The same run also writes reports/e2e/results.json, which the app's /e2e page shows with every screenshot.
  * Image tests (toHaveScreenshot) compare against the committed baselines in e2e/__screenshots__;
  * `npm run test:e2e:update` rewrites them after an intended UI change.
+ *
+ * Every run gets its own database, E2E_DB, deleted and seeded from src/data before the server starts, so the
+ * tests never depend on what the development database (.data/farmart.sqlite) holds. It is seeded in the webServer
+ * command because Playwright starts the webServer before globalSetup runs. One exception: the home page is pre-rendered
+ * by `npm run build` (revalidate = 60), so its first HTML comes from whatever database the build read.
  */
 const PORT = 3100;
+const E2E_DB = ".data/e2e.sqlite";
 
 export default defineConfig({
   testDir: "e2e",
@@ -46,8 +52,10 @@ export default defineConfig({
     { name: "mobile", use: { ...devices["Pixel 5"], viewport: { width: 375, height: 812 } }, testMatch: /responsive\.spec\.ts/ },
   ],
   webServer: {
-    // Next's own binary through node: no shell, and the whole server stops with the run.
-    command: `node node_modules/next/dist/bin/next start -p ${PORT}`,
+    // A fresh database first (db:reset on E2E_DB), then Next's own binary through node; the whole server stops
+    // with the run. If seeding fails, the server never starts and the seed's message is printed.
+    command: `node node_modules/tsx/dist/cli.mjs scripts/seed/cli.ts --reset --file ${E2E_DB} && node node_modules/next/dist/bin/next start -p ${PORT}`,
+    env: { FARMART_DB: E2E_DB },
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: false,
     timeout: 60_000,
