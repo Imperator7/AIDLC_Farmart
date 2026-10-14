@@ -65,7 +65,7 @@ Walk the sections that match the diff. Each line is a question; a "no" is a cand
 ### Client code and browser state (`"use client"`, `src/lib`)
 
 - **Nothing from the browser is trusted.** `localStorage`, the URL and form fields can hold anything. Persisted state goes through a sanitizer like `sanitizeCart` (whole quantities 1–99, valid prices, no duplicate ids) and the reducer clamps (`clampQty`).
-- **Prices are the server's.** The browser cart's prices can be edited; anything that charges money (Epic 4 checkout) must price on the server and ignore client prices (openapi.yaml: "clients never send prices").
+- **Prices are the server's.** The browser cart's prices can be edited; anything that charges money (Phase 3 checkout) must price on the server and ignore client prices (openapi.yaml: "clients never send prices").
 - **No server code in the client.** A `"use client"` module never imports `src/server/` or `node:sqlite`; shared helpers live in `src/lib/`.
 - **Number handling:** a value read from JSON can be a string; `"5" + 0` concatenates. Check `Number.isInteger`/`Number.isFinite` before arithmetic.
 
@@ -120,9 +120,9 @@ Rank by severity, most severe first: data loss or money > security > wrong resul
 Keep proven findings apart from suspicions. Say what you checked and found clean, so the person knows the coverage. When the `ReportFindings` tool is available (`/code-review`), report through it.
 
 **Accepted risks: don't re-report them unless the change makes them worse** (PLAN.md › Status plans the first three):
-- The browser cart's prices can be edited (until Epic 4's server-priced checkout).
-- CSP `script-src 'unsafe-inline'` (until nonces come with Epic 3).
-- No rate limiting (needed with `/api/auth/*` in Epic 3).
+- The browser cart's prices can be edited (until Phase 3's server-priced checkout).
+- CSP `script-src 'unsafe-inline'` (until nonces come in Phase 5).
+- No rate limiting (needed with `/api/auth/*` in Phase 2).
 - The command guard can't see a delete made from inside a program.
 - 7 Redocly warnings, one of them the deliberately unlisted 405 response.
 
