@@ -32,6 +32,9 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // Don't advertise the framework in response headers.
   poweredByHeader: false,
+  // The database is opened from a runtime path (client.ts), so tracing can't find it. Ship the seeded file with every
+  // server route; on Vercel the build command seeds it first (vercel.json).
+  outputFileTracingIncludes: { "/**": ["./.data/farmart.sqlite"] },
   images: {
     // Product photos are served from Unsplash and optimized by next/image (browser only talks to our own origin).
     remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com", pathname: "/photo-*" }],

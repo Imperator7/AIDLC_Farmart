@@ -5,7 +5,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { seed } from "../../../../scripts/seed/seed";
-import { DatabaseNotReadyError, getDb, openDb } from "../../db/client";
+import { DatabaseNotReadyError, getDb, openDb, servedFile } from "../../db/client";
 import { SCHEMA_VERSION } from "../../db/schema";
 
 const dir = mkdtempSync(path.join(tmpdir(), "farmart-db-"));
@@ -124,6 +124,27 @@ describe("getDb", () => {
     withoutConnection(() => {
       expect(() => getDb()).toThrow(/:memory: has no data/);
     });
+  });
+});
+
+describe("servedFile (Vercel's read-only deployment)", () => {
+  it("opens the file itself outside Vercel, and never copies :memory:", () => {
+    expect(servedFile(file("x.sqlite"), {})).toBe(file("x.sqlite"));
+    expect(servedFile(":memory:", { VERCEL: "1" })).toBe(":memory:");
+  });
+
+  it("on Vercel, copies the bundled database to the temp folder once and serves the copy", () => {
+    const bundled = track(openDb(file("bundled.sqlite")));
+    seed(bundled);
+    bundled.close();
+    open.pop();
+    const tmp = mkdtempSync(path.join(dir, "tmp-"));
+    const copy = servedFile(file("bundled.sqlite"), { VERCEL: "1" }, tmp);
+    expect(copy).toBe(path.join(tmp, "bundled.sqlite"));
+    const db = track(openDb(copy));
+    expect(count(db, "products")).toBe(16);
+    // A second call (a later request in the same instance) keeps the existing copy instead of overwriting it.
+    expect(servedFile(file("bundled.sqlite"), { VERCEL: "1" }, tmp)).toBe(copy);
   });
 });
 

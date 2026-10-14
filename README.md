@@ -101,6 +101,25 @@ PLAN.md           epics, backlog and status
   image comparisons against approved screenshots. Each run seeds its own database (`.data/e2e.sqlite`), so the results
   don't depend on your development data.
 
+## Deploying to Vercel
+
+The project deploys to [Vercel](https://vercel.com) as is; `vercel.json` holds what Vercel needs.
+
+1. On https://vercel.com/new, import the GitHub repository `Imperator7/AIDLC_Farmart`. Keep the detected framework
+   (Next.js) and the settings from `vercel.json`; no environment variables are needed.
+2. Click **Deploy**. Every push to `main` then deploys to production, and every pull request gets a preview URL.
+
+How the database works there:
+
+- The build command is `npm run db:seed && npm run build`: the build seeds `.data/farmart.sqlite` from `src/data`
+  first, because pre-rendering reads it.
+- `next.config.ts` (`outputFileTracingIncludes`) ships that file with every server route.
+- Vercel's deployed files are read-only, so on Vercel (`VERCEL` is set) the app copies the database to the temp folder
+  once per instance and reads it there (`servedFile` in `src/server/db/client.ts`).
+- The app only reads data, so this is enough for the catalog. Anything that writes and must last (accounts, orders)
+  will need a hosted database instead of a file in the deployment.
+- Developer pages stay hidden in production unless `FARMART_DEV_TOOLS=1` is set in the project's environment variables.
+
 ## Contributing
 
 - `main` is the main branch. Work on a branch (`feat/…`, `fix/…`, `docs/…`) and open a pull request into `main`.
