@@ -5,6 +5,8 @@ with **Next.js 16** (App Router), **React 19**, **TypeScript** and **Tailwind CS
 route handlers under `/api` and data in **SQLite** through Node's built-in `node:sqlite`. There is no database server and
 no `.env` to set up.
 
+**Live demo:** https://deploy-main-topaz.vercel.app
+
 ## Quick start
 
 You need **Node.js 22.13 or newer** (the project is developed on Node 24), npm and git.
