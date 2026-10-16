@@ -1,7 +1,12 @@
 # Supabase guide for Farmart
 
-What Supabase is, which parts of it Farmart uses, and how to set it up for development and production. The database
-itself is designed in [`database-design.md`](database-design.md).
+What Supabase is, which parts of it Farmart uses, and how to set it up. The database itself is designed in
+[`database-design.md`](database-design.md).
+
+> **Role since 2026-10-16:** production is headed for **AWS RDS** (PLAN.md › Decisions). Supabase is the **interim
+> hosted Postgres for the live demo** (and optionally a cloud dev database), used as plain Postgres only, so leaving it
+> is a URL change plus a data copy. Local development uses Docker Postgres ([`phase-1-postgres.md`](phase-1-postgres.md)).
+> Sections 2–5 and 7 still apply to that interim database.
 
 ## 1. What Supabase is (and what we use)
 
